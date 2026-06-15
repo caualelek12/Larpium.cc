@@ -46,10 +46,6 @@ function PlayersHandlers.update2dPositions()
     
 end
 
-for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
-    addPlayer(player)
-end
-
 Players.PlayerAdded:Connect(addPlayer)
 Players.PlayerRemoving:Connect(removePlayer)
 
