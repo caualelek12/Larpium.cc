@@ -44,3 +44,5 @@ function DrawingHelp.UpdateDraw(name, properties) --Properties = Table
         drawing[property] = value
     end
 end
+
+return DrawingHelp
