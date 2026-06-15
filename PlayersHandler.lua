@@ -27,7 +27,7 @@ local function removePlayer(player)
 end
 
 for _, player in ipairs(Players:GetPlayers()) do
-    task.defer(addPlayer, player)
+    addPlayer(player)
 end
 
 function PlayersHandlers.update2dPositions()
