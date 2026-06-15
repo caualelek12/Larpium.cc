@@ -32,7 +32,7 @@ end
 
 function PlayersHandlers.update2dPositions()
 
-    for Player , Data in ipairs(PlayersHandlers.Characters) do
+    for Player , Data in pairs(PlayersHandlers.Characters) do
         if Player.Character or Data.Character then
             local Char = Player.Character or Data.Character
             local root = Char and Char:FindFirstChild("HumanoidRootPart")
