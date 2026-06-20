@@ -24,7 +24,7 @@ EspHandler.Settings = {
             Enabled = true,
             Type = "Corner", -- Square / Corner
             Color = Color3.fromRGB(255, 255, 255),
-            Thickness = 1,
+            Thickness = 4,
             CornerSize = 12,
         },
 
@@ -36,13 +36,32 @@ EspHandler.Settings = {
             Filled = false,
         },
 
+        Skeleton = {
+            Enabled = false,
+            Color = Color3.fromRGB(255, 255, 255),
+            Thickness = 2,
+            Transparency = 1,
+        },
         Health = {
             Enabled = true,
-            Side = "Left", -- Left / Right
-            Width = 2,
+            Side = "Left", -- Left / Right / Top / Bottom
+            Width = 4,
             Color = Color3.fromRGB(0, 255, 80),
             LowColor = Color3.fromRGB(255, 60, 60),
             BackgroundColor = Color3.fromRGB(30, 30, 30),
+            Gap = 4,
+            TextGap = 3,
+            ReserveTextSpace = true,
+            Length = nil, -- nil = auto scale to box height/width
+            Text = {
+                Enabled = true,
+                Format = "Percent", -- Percent / Value / Custom function
+                Color = Color3.fromRGB(255, 255, 255),
+                Size = 13,
+                Font = nil,
+                Width = 34,
+                Outline = true,
+            },
         },
 
         Texts = {
@@ -328,58 +347,208 @@ local function updateSquareBox(espName, objectId, position, size, boxSettings)
     end
 end
 
-local function updateHealth(espName, objectId, position, size, humanoid, settings)
-    if not humanoid or not settings.Enabled then
-        updateDraw(espName, objectId, "HealthBG", { Visible = false })
-        updateDraw(espName, objectId, "Health", { Visible = false })
-        return
+local function formatHealthText(health, maxHealth, healthPercent, textSettings)
+    if type(textSettings.Format) == "function" then
+        return textSettings.Format(health, maxHealth, healthPercent)
+    elseif textSettings.Format == "Value" then
+        return tostring(math.floor(health)) .. "/" .. tostring(math.floor(maxHealth))
     end
 
-    local healthPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
-    local barWidth = settings.Width or 2
-    local xOffset = settings.Side == "Right" and size.X + 4 or -6
-    local barHeight = size.Y * healthPercent
-    local barX = position.X + xOffset
-    local barY = position.Y + size.Y - barHeight
+    return tostring(math.floor(healthPercent * 100)) .. "%"
+end
+
+local function updateHealthValue(espName, objectId, position, size, health, maxHealth, settings)
+    settings = settings or {}
+    if settings.Enabled == false or not health or not maxHealth or maxHealth <= 0 then
+        updateDraw(espName, objectId, "HealthBG", { Visible = false })
+        updateDraw(espName, objectId, "Health", { Visible = false })
+        updateDraw(espName, objectId, "HealthText", { Visible = false })
+        return 0, nil
+    end
+
+    local healthPercent = math.clamp(health / maxHealth, 0, 1)
+    local side = settings.Side or "Left"
+    local isHorizontal = side == "Top" or side == "Bottom"
+    local thickness = settings.Thickness or settings.Width or 4
+    local gap = settings.Gap or 4
+    local textGap = settings.TextGap or 3
+    local bgPosition
+    local bgSize
+    local fillPosition
+    local fillSize
+
+    if isHorizontal then
+        local fullWidth = settings.Length or size.X
+        local fillWidth = fullWidth * healthPercent
+        local barX = position.X + (size.X - fullWidth) / 2
+        local barY = side == "Top" and position.Y - thickness - gap or position.Y + size.Y + gap
+
+        bgPosition = Vector2.new(barX, barY)
+        bgSize = Vector2.new(fullWidth, thickness)
+        fillPosition = Vector2.new(barX, barY)
+        fillSize = Vector2.new(fillWidth, thickness)
+    else
+        local fullHeight = settings.Length or size.Y
+        local fillHeight = fullHeight * healthPercent
+        local barX = side == "Right" and position.X + size.X + gap or position.X - thickness - gap
+        local barY = position.Y + (size.Y - fullHeight) / 2
+
+        bgPosition = Vector2.new(barX, barY)
+        bgSize = Vector2.new(thickness, fullHeight)
+        fillPosition = Vector2.new(barX, barY + fullHeight - fillHeight)
+        fillSize = Vector2.new(thickness, fillHeight)
+    end
 
     createDraw(espName, objectId, "HealthBG", "Square")
     createDraw(espName, objectId, "Health", "Square")
 
     updateDraw(espName, objectId, "HealthBG", {
         Visible = true,
-        Position = Vector2.new(barX, position.Y),
-        Size = Vector2.new(barWidth, size.Y),
+        Position = bgPosition,
+        Size = bgSize,
         Color = settings.BackgroundColor or Color3.fromRGB(30, 30, 30),
         Filled = true,
     })
 
     updateDraw(espName, objectId, "Health", {
         Visible = true,
-        Position = Vector2.new(barX, barY),
-        Size = Vector2.new(barWidth, barHeight),
-        Color = healthPercent > 0.35 and settings.Color or settings.LowColor,
+        Position = fillPosition,
+        Size = fillSize,
+        Color = healthPercent > 0.35 and (settings.Color or Color3.fromRGB(0, 255, 80)) or (settings.LowColor or Color3.fromRGB(255, 60, 60)),
         Filled = true,
     })
-end
 
+    local reserve = isHorizontal and 0 or (thickness + gap)
+    local reserveSide = isHorizontal and nil or side
+    local textSettings = settings.Text or {}
+    if textSettings.Enabled then
+        local textWidth = textSettings.Width or 34
+        local textSize = textSettings.Size or 13
+        local textPosition
+        local textCenter = false
+
+        if isHorizontal then
+            textCenter = true
+            textPosition = Vector2.new(bgPosition.X + bgSize.X / 2, side == "Top" and bgPosition.Y - textSize - textGap or bgPosition.Y + thickness + textGap)
+        elseif side == "Right" then
+            textPosition = Vector2.new(bgPosition.X + thickness + textGap, bgPosition.Y + bgSize.Y / 2 - textSize / 2)
+        else
+            textPosition = Vector2.new(bgPosition.X - textWidth - textGap, bgPosition.Y + bgSize.Y / 2 - textSize / 2)
+        end
+
+        createDraw(espName, objectId, "HealthText", "Text")
+        updateDraw(espName, objectId, "HealthText", {
+            Visible = true,
+            Text = formatHealthText(health, maxHealth, healthPercent, textSettings),
+            Position = textPosition,
+            Color = textSettings.Color or Color3.fromRGB(255, 255, 255),
+            Size = textSize,
+            Font = textSettings.Font,
+            Center = textSettings.Center ~= nil and textSettings.Center or textCenter,
+            Outline = textSettings.Outline ~= false,
+        })
+
+        if not isHorizontal then
+            reserve = reserve + textWidth + textGap
+        end
+    else
+        updateDraw(espName, objectId, "HealthText", { Visible = false })
+    end
+
+    if isHorizontal or not settings.ReserveTextSpace then
+        reserve = 0
+        reserveSide = nil
+    end
+
+    return reserve, reserveSide
+end
+local function updateHealth(espName, objectId, position, size, humanoid, settings)
+    if not humanoid then
+        updateDraw(espName, objectId, "HealthBG", { Visible = false })
+        updateDraw(espName, objectId, "Health", { Visible = false })
+        updateDraw(espName, objectId, "HealthText", { Visible = false })
+        return 0, nil
+    end
+
+    return updateHealthValue(espName, objectId, position, size, humanoid.Health, humanoid.MaxHealth, settings)
+end
 local function updateTexts(espName, objectId, player, character, boxPosition, boxSize, info, texts)
     if type(texts) ~= "table" then return end
 
+    local items = {}
     for textName, textSettings in pairs(texts) do
+        items[#items + 1] = {
+            Name = textName,
+            Settings = textSettings,
+            Order = textSettings.Order or 100,
+        }
+    end
+
+    table.sort(items, function(a, b)
+        if a.Order == b.Order then
+            return tostring(a.Name) < tostring(b.Name)
+        end
+
+        return a.Order < b.Order
+    end)
+
+    local used = {
+        Top = 0,
+        Bottom = 0,
+        Left = 0,
+        Right = 0,
+        Center = 0,
+    }
+
+    for _, item in ipairs(items) do
+        local textName = item.Name
+        local textSettings = item.Settings
+
         if textSettings.Enabled then
             local value = textSettings.Text
             if type(value) == "function" then
                 value = value(player, character, info)
             end
 
-            local position, center = anchorPosition(boxPosition, boxSize, textSettings.Anchor, textSettings.Offset)
+            local anchor = textSettings.Anchor or "Top"
+            local textSize = textSettings.Size or 13
+            local spacing = textSettings.Spacing or textSize + 2
+            local offset = textSettings.Offset or Vector2.zero
+            local slot = used[anchor] or 0
+            used[anchor] = slot + 1
+
+            if anchor == "Top" then
+                offset = offset + Vector2.new(0, -slot * spacing)
+            elseif anchor == "Bottom" then
+                offset = offset + Vector2.new(0, slot * spacing)
+            elseif anchor == "Left" then
+                offset = offset + Vector2.new(0, slot * spacing)
+            elseif anchor == "Right" then
+                offset = offset + Vector2.new(0, slot * spacing)
+            end
+
+            local position, center = anchorPosition(boxPosition, boxSize, anchor, offset)
+            local healthReserve = 0
+            if info and info.HealthSide == anchor then
+                healthReserve = info.HealthReserve or 0
+            end
+
+            if anchor == "Left" then
+                position = position - Vector2.new((textSettings.Width or 60) + healthReserve, 0)
+                center = false
+            elseif anchor == "Right" then
+                position = position + Vector2.new((textSettings.Padding or 4) + healthReserve, 0)
+                center = false
+            end
+
             createDraw(espName, objectId, "Text_" .. textName, "Text")
             updateDraw(espName, objectId, "Text_" .. textName, {
                 Visible = true,
                 Text = tostring(value or ""),
                 Position = position,
                 Color = textSettings.Color or Color3.fromRGB(255, 255, 255),
-                Size = textSettings.Size or 13,
+                Size = textSize,
+                Font = textSettings.Font,
                 Center = textSettings.Center ~= nil and textSettings.Center or center,
                 Outline = textSettings.Outline ~= false,
             })
@@ -388,7 +557,6 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
         end
     end
 end
-
 local function updateHeadCircle(espName, objectId, character, settings)
     if not settings.Enabled then
         updateDraw(espName, objectId, "HeadCircle", { Visible = false })
@@ -410,6 +578,68 @@ local function updateHeadCircle(espName, objectId, character, settings)
     })
 end
 
+local SkeletonBones = {
+    { "Head", "UpperTorso" },
+    { "UpperTorso", "LowerTorso" },
+    { "UpperTorso", "LeftUpperArm" },
+    { "LeftUpperArm", "LeftLowerArm" },
+    { "LeftLowerArm", "LeftHand" },
+    { "UpperTorso", "RightUpperArm" },
+    { "RightUpperArm", "RightLowerArm" },
+    { "RightLowerArm", "RightHand" },
+    { "LowerTorso", "LeftUpperLeg" },
+    { "LeftUpperLeg", "LeftLowerLeg" },
+    { "LeftLowerLeg", "LeftFoot" },
+    { "LowerTorso", "RightUpperLeg" },
+    { "RightUpperLeg", "RightLowerLeg" },
+    { "RightLowerLeg", "RightFoot" },
+    { "Head", "Torso" },
+    { "Torso", "Left Arm" },
+    { "Torso", "Right Arm" },
+    { "Torso", "Left Leg" },
+    { "Torso", "Right Leg" },
+}
+
+local function hideSkeleton(espName, objectId)
+    for index in ipairs(SkeletonBones) do
+        updateDraw(espName, objectId, "Skeleton_" .. index, { Visible = false })
+    end
+end
+
+local function updateSkeleton(espName, objectId, model, settings)
+    settings = settings or {}
+    if settings.Enabled == false or not model then
+        hideSkeleton(espName, objectId)
+        return
+    end
+
+    local color = settings.Color or Color3.fromRGB(255, 255, 255)
+    local thickness = settings.Thickness or 2
+    local transparency = settings.Transparency or 1
+
+    for index, bone in ipairs(SkeletonBones) do
+        local partA = model:FindFirstChild(bone[1])
+        local partB = model:FindFirstChild(bone[2])
+        local element = "Skeleton_" .. index
+
+        if partA and partB then
+            local pointA, visibleA = Camera:WorldToViewportPoint(partA.Position)
+            local pointB, visibleB = Camera:WorldToViewportPoint(partB.Position)
+
+            createDraw(espName, objectId, element, "Line")
+            updateDraw(espName, objectId, element, {
+                Visible = visibleA or visibleB,
+                From = Vector2.new(pointA.X, pointA.Y),
+                To = Vector2.new(pointB.X, pointB.Y),
+                Color = color,
+                Thickness = thickness,
+                Transparency = transparency,
+            })
+        else
+            updateDraw(espName, objectId, element, { Visible = false })
+        end
+    end
+end
 local function isValidPlayer(player, data, settings)
     if player == LocalPlayer then return false end
     if not data or not data.Character then return false end
@@ -465,9 +695,16 @@ local function updatePlayerEsp(player, data)
         end
     end
 
-    updateHealth(espName, objectId, position, size, humanoid, settings.Health or {})
+    local healthReserve, healthSide = updateHealth(espName, objectId, position, size, humanoid, settings.Health or {})
     updateHeadCircle(espName, objectId, character, settings.HeadCircle or {})
-    updateTexts(espName, objectId, player, character, position, size, { Distance = distance, Root = root, Humanoid = humanoid }, settings.Texts)
+    updateSkeleton(espName, objectId, character, settings.Skeleton or {})
+    updateTexts(espName, objectId, player, character, position, size, {
+        Distance = distance,
+        Root = root,
+        Humanoid = humanoid,
+        HealthReserve = healthReserve,
+        HealthSide = healthSide,
+    }, settings.Texts)
 end
 
 local function isTrackedObjectValid(object, settings)
@@ -816,6 +1053,7 @@ function EspHandler.UpdateText(espName, objectId, textName, text, position, text
         Position = position,
         Color = textSettings.Color or Color3.fromRGB(255, 255, 255),
         Size = textSettings.Size or 13,
+        Font = textSettings.Font,
         Center = textSettings.Center ~= false,
         Outline = textSettings.Outline ~= false,
     })
@@ -845,34 +1083,27 @@ function EspHandler.UpdateHeadCircle(espName, objectId, position, circleSettings
     })
 end
 
-function EspHandler.UpdateHealthBar(espName, objectId, position, size, healthPercent, healthSettings)
-    healthSettings = healthSettings or {}
-    healthPercent = math.clamp(healthPercent or 0, 0, 1)
+function EspHandler.UpdateSkeleton(espName, objectId, model, skeletonSettings)
+    skeletonSettings = skeletonSettings or {}
+    if skeletonSettings.Enabled == nil then
+        skeletonSettings.Enabled = true
+    end
 
-    local barWidth = healthSettings.Width or 2
-    local xOffset = healthSettings.Side == "Right" and size.X + 4 or -6
-    local barHeight = size.Y * healthPercent
-    local barX = position.X + xOffset
-    local barY = position.Y + size.Y - barHeight
+    return updateSkeleton(espName, objectId, model, skeletonSettings)
+end
+function EspHandler.UpdateHealthBar(espName, objectId, position, size, health, maxHealth, healthSettings)
+    if type(maxHealth) == "table" then
+        healthSettings = maxHealth
+        maxHealth = 1
+    end
 
-    createDraw(espName, objectId, "HealthBG", "Square")
-    createDraw(espName, objectId, "Health", "Square")
+    maxHealth = maxHealth or 1
+    health = health or 0
+    return updateHealthValue(espName, objectId, position, size, health, maxHealth, healthSettings)
+end
 
-    updateDraw(espName, objectId, "HealthBG", {
-        Visible = healthSettings.Visible ~= false,
-        Position = Vector2.new(barX, position.Y),
-        Size = Vector2.new(barWidth, size.Y),
-        Color = healthSettings.BackgroundColor or Color3.fromRGB(30, 30, 30),
-        Filled = true,
-    })
-
-    return updateDraw(espName, objectId, "Health", {
-        Visible = healthSettings.Visible ~= false,
-        Position = Vector2.new(barX, barY),
-        Size = Vector2.new(barWidth, barHeight),
-        Color = healthPercent > 0.35 and (healthSettings.Color or Color3.fromRGB(0, 255, 80)) or (healthSettings.LowColor or Color3.fromRGB(255, 60, 60)),
-        Filled = true,
-    })
+function EspHandler.UpdateHealth(espName, objectId, position, size, health, maxHealth, healthSettings)
+    return EspHandler.UpdateHealthBar(espName, objectId, position, size, health, maxHealth, healthSettings)
 end
 function EspHandler.GetBox(character)
     return getBox(character)
