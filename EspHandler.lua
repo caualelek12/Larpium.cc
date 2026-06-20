@@ -51,7 +51,7 @@ EspHandler.Settings = {
             Color = Color3.fromRGB(0, 255, 80),
             LowColor = Color3.fromRGB(255, 60, 60),
             BackgroundColor = Color3.fromRGB(30, 30, 30),
-            Gap = 2,
+            Gap = 1,
             TextGap = 1,
             ReserveTextSpace = true,
             Length = nil, -- nil = auto scale to box height/width
@@ -98,7 +98,7 @@ EspHandler.Settings = {
                 end,
                 Color = Color3.fromRGB(255, 220, 120),
                 Size = 10,
-                Offset = Vector2.new(6, 0),
+                Offset = Vector2.new(1, 0),
             },
 
             State = {
@@ -110,7 +110,7 @@ EspHandler.Settings = {
                 end,
                 Color = Color3.fromRGB(160, 220, 255),
                 Size = 10,
-                Offset = Vector2.new(-6, 0),
+                Offset = Vector2.new(-1, 0),
             },
         },
     },
@@ -366,6 +366,10 @@ local function updateSquareBox(espName, objectId, position, size, boxSettings)
     end
 end
 
+local function estimateTextWidth(text, size)
+    return math.max(8, math.floor(#tostring(text or "") * (size or 10) * 0.55))
+end
+
 local function formatHealthText(health, maxHealth, healthPercent, textSettings)
     if type(textSettings.Format) == "function" then
         return textSettings.Format(health, maxHealth, healthPercent)
@@ -389,7 +393,7 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
     local side = settings.Side or "Left"
     local isHorizontal = side == "Top" or side == "Bottom"
     local thickness = settings.Thickness or settings.Width or 4
-    local gap = settings.Gap or 2
+    local gap = settings.Gap or 1
     local textGap = settings.TextGap or 1
     local bgPosition
     local bgSize
@@ -450,11 +454,9 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
             textCenter = true
             textPosition = Vector2.new(bgPosition.X + bgSize.X / 2, side == "Top" and bgPosition.Y - textSize - textGap or bgPosition.Y + thickness + textGap)
         elseif side == "Right" then
-            textCenter = true
-            textPosition = Vector2.new(bgPosition.X + thickness / 2, bgPosition.Y + bgSize.Y + textGap)
+            textPosition = Vector2.new(bgPosition.X + thickness + textGap, bgPosition.Y + bgSize.Y - textSize)
         else
-            textCenter = true
-            textPosition = Vector2.new(bgPosition.X + thickness / 2, bgPosition.Y + bgSize.Y + textGap)
+            textPosition = Vector2.new(bgPosition.X - textWidth - textGap, bgPosition.Y + bgSize.Y - textSize)
         end
 
         createDraw(espName, objectId, "HealthText", "Text")
@@ -469,7 +471,9 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
             Outline = textSettings.Outline ~= false,
         })
 
-        -- Side health text is stacked under the bar, so it does not reserve horizontal label space.
+        if not isHorizontal and settings.ReserveTextSpace ~= false then
+            reserve = reserve + textGap + textWidth
+        end
     else
         updateDraw(espName, objectId, "HealthText", { Visible = false })
     end
@@ -552,11 +556,14 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 healthReserve = info.HealthReserve or 0
             end
 
+            local sidePadding = textSettings.Padding or 1
+            local sideWidth = textSettings.Width or estimateTextWidth(value, textSize)
+
             if anchor == "Left" then
-                position = position - Vector2.new((textSettings.Width or 60) + healthReserve, 0)
+                position = position - Vector2.new(sideWidth + sidePadding + healthReserve, 0)
                 center = false
             elseif anchor == "Right" then
-                position = position + Vector2.new((textSettings.Padding or 4) + healthReserve, 0)
+                position = position + Vector2.new(sidePadding + healthReserve, 0)
                 center = false
             end
 
