@@ -2,8 +2,10 @@ local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local Camera = workspace.CurrentCamera
 
-local PlayersHandler = loadstring(game:HttpGet("https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/PlayersHandler.lua"))()
-local DrawingHelp = loadstring(game:HttpGet("https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/DrawingHelp.lua"))()
+local PlayersHandler = getgenv().PlayersHandler or loadstring(game:HttpGet("https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/PlayersHandler.lua"))()
+local DrawingHelp = getgenv().DrawingHelp or loadstring(game:HttpGet("https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/DrawingHelp.lua"))()
+getgenv().PlayersHandler = PlayersHandler
+getgenv().DrawingHelp = DrawingHelp
 
 local EspHandler = {}
 
@@ -49,17 +51,17 @@ EspHandler.Settings = {
             Color = Color3.fromRGB(0, 255, 80),
             LowColor = Color3.fromRGB(255, 60, 60),
             BackgroundColor = Color3.fromRGB(30, 30, 30),
-            Gap = 4,
-            TextGap = 3,
+            Gap = 2,
+            TextGap = 1,
             ReserveTextSpace = true,
             Length = nil, -- nil = auto scale to box height/width
             Text = {
                 Enabled = true,
                 Format = "Percent", -- Percent / Value / Custom function
                 Color = Color3.fromRGB(255, 255, 255),
-                Size = 13,
+                Size = 10,
                 Font = nil,
-                Width = 34,
+                Width = 24,
                 Outline = true,
             },
         },
@@ -72,7 +74,7 @@ EspHandler.Settings = {
                     return player.Name
                 end,
                 Color = Color3.fromRGB(255, 255, 255),
-                Size = 13,
+                Size = 10,
                 Offset = Vector2.new(0, -16),
             },
 
@@ -83,7 +85,7 @@ EspHandler.Settings = {
                     return tostring(math.floor(info.Distance)) .. "m"
                 end,
                 Color = Color3.fromRGB(200, 200, 200),
-                Size = 13,
+                Size = 10,
                 Offset = Vector2.new(0, 2),
             },
 
@@ -95,7 +97,7 @@ EspHandler.Settings = {
                     return tool and tool.Name or "None"
                 end,
                 Color = Color3.fromRGB(255, 220, 120),
-                Size = 13,
+                Size = 10,
                 Offset = Vector2.new(6, 0),
             },
 
@@ -107,7 +109,7 @@ EspHandler.Settings = {
                     return humanoid and humanoid:GetState().Name or "Unknown"
                 end,
                 Color = Color3.fromRGB(160, 220, 255),
-                Size = 13,
+                Size = 10,
                 Offset = Vector2.new(-6, 0),
             },
         },
@@ -278,10 +280,12 @@ end
 local function getBox(character)
     local cf, size = character:GetBoundingBox()
     local half = size * 0.5
+    local viewport = Camera.ViewportSize
 
     local minX, minY = math.huge, math.huge
     local maxX, maxY = -math.huge, -math.huge
     local visible = false
+    local validPoints = 0
 
     for x = -1, 1, 2 do
         for y = -1, 1, 2 do
@@ -289,18 +293,33 @@ local function getBox(character)
                 local world = cf:PointToWorldSpace(Vector3.new(half.X * x, half.Y * y, half.Z * z))
                 local screen, onScreen = Camera:WorldToViewportPoint(world)
 
-                visible = visible or onScreen
-                minX = math.min(minX, screen.X)
-                minY = math.min(minY, screen.Y)
-                maxX = math.max(maxX, screen.X)
-                maxY = math.max(maxY, screen.Y)
+                if screen.Z > 0 then
+                    validPoints = validPoints + 1
+                    visible = visible or onScreen
+
+                    local sx = math.clamp(screen.X, -viewport.X, viewport.X * 2)
+                    local sy = math.clamp(screen.Y, -viewport.Y, viewport.Y * 2)
+
+                    minX = math.min(minX, sx)
+                    minY = math.min(minY, sy)
+                    maxX = math.max(maxX, sx)
+                    maxY = math.max(maxY, sy)
+                end
             end
         end
     end
 
-    return Vector2.new(minX, minY), Vector2.new(maxX - minX, maxY - minY), visible
-end
+    if validPoints == 0 or minX == math.huge or minY == math.huge then
+        return Vector2.zero, Vector2.zero, false
+    end
 
+    local boxSize = Vector2.new(maxX - minX, maxY - minY)
+    if boxSize.X < 2 or boxSize.Y < 2 or boxSize.X > viewport.X * 0.9 or boxSize.Y > viewport.Y * 0.9 then
+        return Vector2.zero, Vector2.zero, false
+    end
+
+    return Vector2.new(minX, minY), boxSize, visible
+end
 local function updateCornerBox(espName, objectId, position, size, boxSettings)
     local thickness = boxSettings.Thickness or 1
     local color = boxSettings.Color or Color3.fromRGB(255, 255, 255)
@@ -370,8 +389,8 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
     local side = settings.Side or "Left"
     local isHorizontal = side == "Top" or side == "Bottom"
     local thickness = settings.Thickness or settings.Width or 4
-    local gap = settings.Gap or 4
-    local textGap = settings.TextGap or 3
+    local gap = settings.Gap or 2
+    local textGap = settings.TextGap or 1
     local bgPosition
     local bgSize
     local fillPosition
@@ -422,8 +441,8 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
     local reserveSide = isHorizontal and nil or side
     local textSettings = settings.Text or {}
     if textSettings.Enabled then
-        local textWidth = textSettings.Width or 34
-        local textSize = textSettings.Size or 13
+        local textWidth = textSettings.Width or 24
+        local textSize = textSettings.Size or 10
         local textPosition
         local textCenter = false
 
@@ -431,9 +450,11 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
             textCenter = true
             textPosition = Vector2.new(bgPosition.X + bgSize.X / 2, side == "Top" and bgPosition.Y - textSize - textGap or bgPosition.Y + thickness + textGap)
         elseif side == "Right" then
-            textPosition = Vector2.new(bgPosition.X + thickness + textGap, bgPosition.Y + bgSize.Y / 2 - textSize / 2)
+            textCenter = true
+            textPosition = Vector2.new(bgPosition.X + thickness / 2, bgPosition.Y + bgSize.Y + textGap)
         else
-            textPosition = Vector2.new(bgPosition.X - textWidth - textGap, bgPosition.Y + bgSize.Y / 2 - textSize / 2)
+            textCenter = true
+            textPosition = Vector2.new(bgPosition.X + thickness / 2, bgPosition.Y + bgSize.Y + textGap)
         end
 
         createDraw(espName, objectId, "HealthText", "Text")
@@ -448,9 +469,7 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
             Outline = textSettings.Outline ~= false,
         })
 
-        if not isHorizontal then
-            reserve = reserve + textWidth + textGap
-        end
+        -- Side health text is stacked under the bar, so it does not reserve horizontal label space.
     else
         updateDraw(espName, objectId, "HealthText", { Visible = false })
     end
@@ -511,7 +530,7 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
             end
 
             local anchor = textSettings.Anchor or "Top"
-            local textSize = textSettings.Size or 13
+            local textSize = textSettings.Size or 10
             local spacing = textSettings.Spacing or textSize + 2
             local offset = textSettings.Offset or Vector2.zero
             local slot = used[anchor] or 0
