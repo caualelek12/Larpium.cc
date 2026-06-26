@@ -23,10 +23,23 @@ end
 local function addPlayer(player)
     if player.Character then
         setCharacter(player, player.Character)
+    else
+        setCharacter(player, nil)
     end
 
     addConnection(player.CharacterAdded:Connect(function(character)
         setCharacter(player, character)
+    end))
+
+    addConnection(player.CharacterRemoving:Connect(function(character)
+        if CalculationHandler.InvalidateModelCache then
+            CalculationHandler.InvalidateModelCache(character)
+        end
+
+        local data = PlayersHandlers.Characters[player]
+        if data and data.Character == character then
+            setCharacter(player, nil)
+        end
     end))
 end
 
@@ -36,7 +49,7 @@ end
 
 function PlayersHandlers.GetCharacter(player)
     local data = PlayersHandlers.Characters[player]
-    return data and data.Character or player.Character
+    return player.Character or (data and data.Character)
 end
 
 function PlayersHandlers.Update2DPositions()

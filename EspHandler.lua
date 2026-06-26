@@ -20,7 +20,7 @@ end
 
 local EspHandler = {}
 
-EspHandler.Version = "2026-06-26-rounded-health-bars"
+EspHandler.Version = "2026-06-26-respawn-safe"
 EspHandler.Enabled = false
 EspHandler.UpdateRate = 60
 EspHandler.Connections = {}
@@ -1173,14 +1173,23 @@ local function updateSkeleton(espName, objectId, model, settings)
 end
 local function isValidPlayer(player, data, settings)
     if player == LocalPlayer then return false end
-    if not data or not data.Character then return false end
+    if not data then return false end
     if settings.TeamCheck and LocalPlayer.Team == player.Team then return false end
 
-    local character = data.Character
+    local character = player.Character
+    if data.Character ~= character then
+        if data.Character and CalculationHandler.InvalidateModelCache then
+            CalculationHandler.InvalidateModelCache(data.Character)
+        end
+        data.Character = character
+    end
+
+    if not character or not character:IsDescendantOf(workspace) then return false end
+
     local root = character:FindFirstChild("HumanoidRootPart")
     local humanoid = character:FindFirstChildOfClass("Humanoid")
 
-    if not root then return false end
+    if not root or not root:IsDescendantOf(character) then return false end
     if settings.HealthCheck and humanoid and humanoid.Health <= 0 then return false end
 
     return true, character, root, humanoid
