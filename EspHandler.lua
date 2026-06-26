@@ -20,7 +20,7 @@ end
 
 local EspHandler = {}
 
-EspHandler.Version = "2026-06-26-square-corners-health-stack"
+EspHandler.Version = "2026-06-26-clean-corners-min-box"
 EspHandler.Enabled = false
 EspHandler.Connections = {}
 EspHandler.Running = {}
@@ -34,6 +34,16 @@ EspHandler.Settings = {
         TeamCheck = false,
         HealthCheck = true,
         MaxDistance = 5000,
+
+        BoxCalculation = {
+            Method = "Parts",
+            BodyOnly = true,
+            IgnoreTools = true,
+            IgnoreAccessories = false,
+            MinWidth = 32,
+            MinHeight = 48,
+            FitSideText = true,
+        },
 
         Box = {
             Enabled = true,
@@ -291,11 +301,54 @@ local function anchorPosition(position, size, anchor, offset)
     return CalculationHandler.AnchorPosition(position, size, anchor, offset)
 end
 
+local function getMinimumBoxSize(settings, boxSettings)
+    local minWidth = tonumber(boxSettings.MinWidth) or 32
+    local minHeight = tonumber(boxSettings.MinHeight) or 48
+
+    if boxSettings.FitSideText == false then
+        return minWidth, minHeight
+    end
+
+    local sideLayouts = {
+        Left = { Count = 0, Size = 0, Spacing = 0 },
+        Right = { Count = 0, Size = 0, Spacing = 0 },
+    }
+
+    for _, textSettings in pairs(settings.Texts or {}) do
+        local side = textSettings.Anchor
+        local layout = sideLayouts[side]
+        if layout and textSettings.Enabled then
+            local textSize = math.floor(tonumber(textSettings.Size) or 10)
+            layout.Count = layout.Count + 1
+            layout.Size = math.max(layout.Size, textSize)
+            layout.Spacing = math.max(layout.Spacing, tonumber(textSettings.Spacing) or 0, textSize + 4, 12)
+        end
+    end
+
+    local healthSettings = settings.Health or {}
+    local healthText = healthSettings.Text or {}
+    local healthLayout = sideLayouts[healthSettings.Side]
+    if healthLayout and healthSettings.Enabled and healthText.Enabled then
+        local textSize = math.floor(tonumber(healthText.Size) or 10)
+        healthLayout.Count = healthLayout.Count + 1
+        healthLayout.Size = math.max(healthLayout.Size, textSize)
+        healthLayout.Spacing = math.max(healthLayout.Spacing, tonumber(healthText.Spacing) or 0, textSize + 4, 12)
+    end
+
+    for _, layout in pairs(sideLayouts) do
+        if layout.Count > 0 then
+            minHeight = math.max(minHeight, (layout.Count - 1) * layout.Spacing + layout.Size + 8)
+        end
+    end
+
+    return minWidth, minHeight
+end
+
 local function getBox(character, settings)
     settings = settings or {}
     local boxSettings = settings.BoxCalculation or settings.BoxSize or {}
 
-    return CalculationHandler.GetModelScreenBox(character, Camera, {
+    local position, size, visible = CalculationHandler.GetModelScreenBox(character, Camera, {
         Method = boxSettings.Method or settings.BoxMethod or "Parts",
         BodyOnly = boxSettings.BodyOnly,
         IgnoreTools = boxSettings.IgnoreTools,
@@ -304,6 +357,17 @@ local function getBox(character, settings)
         MaxViewportScale = 0.9,
         MinSize = 2,
     })
+
+    if not visible or boxSettings.EnforceMinimum == false then
+        return position, size, visible
+    end
+
+    local minWidth, minHeight = getMinimumBoxSize(settings, boxSettings)
+    local width = math.max(size.X, minWidth)
+    local height = math.max(size.Y, minHeight)
+    local center = position + size / 2
+
+    return center - Vector2.new(width, height) / 2, Vector2.new(width, height), true
 end
 
 local function hideCornerBoxOutlines(espName, objectId, part)
@@ -334,60 +398,61 @@ local function cleanupLegacyCornerOutlines(espName, objectId, parts)
     end
 end
 
-local function lineSegmentRect(from, to, thickness)
-    from = snapVector2(from)
-    to = snapVector2(to)
-
-    if math.abs(from.X - to.X) >= math.abs(from.Y - to.Y) then
-        local x = math.min(from.X, to.X)
-        local y = math.floor(from.Y - thickness / 2 + 0.5)
-        return Vector2.new(x, y), Vector2.new(math.max(math.abs(to.X - from.X), thickness), thickness)
-    end
-
-    local x = math.floor(from.X - thickness / 2 + 0.5)
-    local y = math.min(from.Y, to.Y)
-    return Vector2.new(x, y), Vector2.new(thickness, math.max(math.abs(to.Y - from.Y), thickness))
+local function expandRect(position, size, amount)
+    local padding = Vector2.new(amount, amount)
+    return position - padding, size + padding * 2
 end
 
 local function updateCornerBox(espName, objectId, position, size, boxSettings)
-    local thickness = boxSettings.Thickness or 1
+    local topLeft = snapVector2(position)
+    local bottomRight = snapVector2(position + size)
+    local width = math.max(bottomRight.X - topLeft.X, 1)
+    local height = math.max(bottomRight.Y - topLeft.Y, 1)
+    local thickness = math.max(math.floor((tonumber(boxSettings.Thickness) or 1) + 0.5), 1)
     local color = boxSettings.Color or Color3.fromRGB(255, 255, 255)
-    local corner = math.min(boxSettings.CornerSize or 12, size.X / 2, size.Y / 2)
+    local corner = math.max(
+        thickness,
+        math.min(math.floor((tonumber(boxSettings.CornerSize) or 12) + 0.5), math.floor(width / 2), math.floor(height / 2))
+    )
     local outline = boxSettings.Outline ~= false
     local outlineColor = boxSettings.OutlineColor or Color3.fromRGB(0, 0, 0)
-    local outlineThickness = boxSettings.OutlineThickness or 1
+    local outlineThickness = math.max(math.floor((tonumber(boxSettings.OutlineThickness) or 1) + 0.5), 1)
+    local x, y = topLeft.X, topLeft.Y
+    local right, bottom = bottomRight.X, bottomRight.Y
 
-    local lines = {
-        { "TL_H", snapVector2(position), snapVector2(Vector2.new(position.X + corner, position.Y)) },
-        { "TL_V", snapVector2(position), snapVector2(Vector2.new(position.X, position.Y + corner)) },
-        { "TR_H", snapVector2(Vector2.new(position.X + size.X, position.Y)), snapVector2(Vector2.new(position.X + size.X - corner, position.Y)) },
-        { "TR_V", snapVector2(Vector2.new(position.X + size.X, position.Y)), snapVector2(Vector2.new(position.X + size.X, position.Y + corner)) },
-        { "BL_H", snapVector2(Vector2.new(position.X, position.Y + size.Y)), snapVector2(Vector2.new(position.X + corner, position.Y + size.Y)) },
-        { "BL_V", snapVector2(Vector2.new(position.X, position.Y + size.Y)), snapVector2(Vector2.new(position.X, position.Y + size.Y - corner)) },
-        { "BR_H", snapVector2(Vector2.new(position.X + size.X, position.Y + size.Y)), snapVector2(Vector2.new(position.X + size.X - corner, position.Y + size.Y)) },
-        { "BR_V", snapVector2(Vector2.new(position.X + size.X, position.Y + size.Y)), snapVector2(Vector2.new(position.X + size.X, position.Y + size.Y - corner)) },
+    local segments = {
+        { "TL_H", Vector2.new(x, y), Vector2.new(corner, thickness) },
+        { "TL_V", Vector2.new(x, y), Vector2.new(thickness, corner) },
+        { "TR_H", Vector2.new(right - corner, y), Vector2.new(corner, thickness) },
+        { "TR_V", Vector2.new(right - thickness, y), Vector2.new(thickness, corner) },
+        { "BL_H", Vector2.new(x, bottom - thickness), Vector2.new(corner, thickness) },
+        { "BL_V", Vector2.new(x, bottom - corner), Vector2.new(thickness, corner) },
+        { "BR_H", Vector2.new(right - corner, bottom - thickness), Vector2.new(corner, thickness) },
+        { "BR_V", Vector2.new(right - thickness, bottom - corner), Vector2.new(thickness, corner) },
     }
 
     cleanupLegacyCornerOutlines(espName, objectId, { "TL_H", "TL_V", "TR_H", "TR_V", "BL_H", "BL_V", "BR_H", "BR_V" })
 
-    for _, line in ipairs(lines) do
-        local segmentPosition, segmentSize = lineSegmentRect(line[2], line[3], thickness)
-        local outlinePosition, outlineSize = lineSegmentRect(line[2], line[3], thickness + outlineThickness * 2)
+    for _, segment in ipairs(segments) do
+        local segmentPosition, segmentSize = segment[2], segment[3]
+        local outlinePosition, outlineSize = expandRect(segmentPosition, segmentSize, outlineThickness)
 
-        createDraw(espName, objectId, "BoxSegmentOutline_" .. line[1], "Square")
-        updateDraw(espName, objectId, "BoxSegmentOutline_" .. line[1], {
+        createDraw(espName, objectId, "BoxSegmentOutline_" .. segment[1], "Square")
+        updateDraw(espName, objectId, "BoxSegmentOutline_" .. segment[1], {
             Visible = outline,
             Position = outlinePosition,
             Size = outlineSize,
             Color = outlineColor,
             Filled = true,
         })
+    end
 
-        createDraw(espName, objectId, "BoxSegment_" .. line[1], "Square")
-        updateDraw(espName, objectId, "BoxSegment_" .. line[1], {
+    for _, segment in ipairs(segments) do
+        createDraw(espName, objectId, "BoxSegment_" .. segment[1], "Square")
+        updateDraw(espName, objectId, "BoxSegment_" .. segment[1], {
             Visible = true,
-            Position = segmentPosition,
-            Size = segmentSize,
+            Position = segment[2],
+            Size = segment[3],
             Color = color,
             Filled = true,
         })
