@@ -20,7 +20,7 @@ end
 
 local EspHandler = {}
 
-EspHandler.Version = "2026-06-26-corner-cleanup"
+EspHandler.Version = "2026-06-26-text-stack-layout"
 EspHandler.Enabled = false
 EspHandler.Connections = {}
 EspHandler.Running = {}
@@ -560,6 +560,22 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
         return a.Order < b.Order
     end)
 
+    local counts = {
+        Top = 0,
+        Bottom = 0,
+        Left = 0,
+        Right = 0,
+        Center = 0,
+    }
+
+    for _, item in ipairs(items) do
+        local textSettings = item.Settings
+        if textSettings.Enabled then
+            local anchor = textSettings.Anchor or "Top"
+            counts[anchor] = (counts[anchor] or 0) + 1
+        end
+    end
+
     local used = {
         Top = 0,
         Bottom = 0,
@@ -581,7 +597,7 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
 
             local anchor = textSettings.Anchor or "Top"
             local textSize = math.floor(tonumber(textSettings.Size) or 10)
-            local spacing = textSettings.Spacing or math.max(textSize + 2, 10)
+            local spacing = math.max(tonumber(textSettings.Spacing) or 0, textSize + 4, 12)
             local offset = textSettings.Offset or Vector2.zero
             local slot = used[anchor] or 0
             used[anchor] = slot + 1
@@ -591,9 +607,9 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
             elseif anchor == "Bottom" then
                 offset = offset + Vector2.new(0, slot * spacing)
             elseif anchor == "Left" then
-                offset = offset + Vector2.new(0, slot * spacing)
+                offset = offset + Vector2.new(0, (slot - ((counts.Left or 1) - 1) / 2) * spacing)
             elseif anchor == "Right" then
-                offset = offset + Vector2.new(0, slot * spacing)
+                offset = offset + Vector2.new(0, (slot - ((counts.Right or 1) - 1) / 2) * spacing)
             end
 
             local sidePadding = math.max(textSettings.Padding or 2, 1)
