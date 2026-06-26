@@ -74,8 +74,7 @@ EspHandler.Settings = {
         Texts = {
             Name = {
                 Enabled = true,
-                Anchor = "Auto",
-                AttachTo = "HealthBar",
+                Anchor = "Left",
                 Text = function(player)
                     return player.Name
                 end,
@@ -89,8 +88,7 @@ EspHandler.Settings = {
 
             Distance = {
                 Enabled = true,
-                Anchor = "Auto",
-                AttachTo = "HealthBar",
+                Anchor = "Left",
                 Text = function(_, _, info)
                     return tostring(math.floor(info.Distance)) .. "m"
                 end,
@@ -104,8 +102,7 @@ EspHandler.Settings = {
 
             Weapon = {
                 Enabled = false,
-                Anchor = "Auto",
-                AttachTo = "HealthBar",
+                Anchor = "Left",
                 Text = function(_, character)
                     local tool = character and character:FindFirstChildOfClass("Tool")
                     return tool and tool.Name or "None"
@@ -120,8 +117,7 @@ EspHandler.Settings = {
 
             State = {
                 Enabled = false,
-                Anchor = "Auto",
-                AttachTo = "HealthBar",
+                Anchor = "Left",
                 Text = function(_, character)
                     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
                     return humanoid and humanoid:GetState().Name or "Unknown"
@@ -573,27 +569,22 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 offset = offset + Vector2.new(0, slot * spacing)
             elseif anchor == "Right" then
                 offset = offset + Vector2.new(0, slot * spacing)
-            elseif anchor == "Auto" then
-                offset = offset + Vector2.new(0, slot * spacing)
             end
 
             local sidePadding = math.max(textSettings.Padding or 2, 1)
             local sideWidth = textSettings.Width or estimateTextWidth(value, textSize)
             local position
             local center
-            local attachedToHealth = textSettings.AttachTo == "HealthBar" and info and info.HealthBar and not info.HealthBar.IsHorizontal
+            local healthBar = info and info.HealthBar
+            local attachedToHealth = healthBar
+                and not healthBar.IsHorizontal
+                and (anchor == healthBar.Side or textSettings.AttachTo == "HealthBar")
 
             if attachedToHealth then
-                local healthBar = info.HealthBar
                 local healthPosition = healthBar.Position
                 local healthSize = healthBar.Size
-                local healthSide = healthBar.Side
                 local textSide = anchor
                 local baseY = healthPosition.Y
-
-                if textSide ~= "Left" and textSide ~= "Right" then
-                    textSide = healthSide
-                end
 
                 if textSide == "Left" then
                     local maxRight = healthPosition.X - sidePadding
