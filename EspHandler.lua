@@ -20,7 +20,7 @@ end
 
 local EspHandler = {}
 
-EspHandler.Version = "2026-06-26-distance-scaled-boxes"
+EspHandler.Version = "2026-06-26-box-scaled-text"
 EspHandler.Enabled = false
 EspHandler.UpdateRate = 60
 EspHandler.Connections = {}
@@ -49,6 +49,14 @@ EspHandler.Settings = {
             MaxMinimumScale = 1.5,
             AbsoluteMinWidth = 12,
             AbsoluteMinHeight = 18,
+        },
+
+        TextScaling = {
+            Enabled = true,
+            ReferenceHeight = 60,
+            MinScale = 0.5,
+            MaxScale = 1,
+            MinSize = 6,
         },
 
         Box = {
@@ -404,7 +412,28 @@ local function anchorPosition(position, size, anchor, offset)
     return CalculationHandler.AnchorPosition(position, size, anchor, offset)
 end
 
-local function getMinimumBoxSize(settings, boxSettings)
+local function getTextScale(boxSize, scalingSettings)
+    scalingSettings = scalingSettings or {}
+    if scalingSettings.Enabled == false then return 1 end
+
+    local referenceHeight = math.max(tonumber(scalingSettings.ReferenceHeight) or 60, 1)
+    local minScale = math.max(tonumber(scalingSettings.MinScale) or 0.5, 0.1)
+    local maxScale = math.max(tonumber(scalingSettings.MaxScale) or 1, minScale)
+    return math.clamp(boxSize.Y / referenceHeight, minScale, maxScale)
+end
+
+local function getScaledTextSize(baseSize, boxSize, scalingSettings, textSettings)
+    baseSize = math.max(math.floor((tonumber(baseSize) or 10) + 0.5), 1)
+    if textSettings and textSettings.ScaleWithBox == false then
+        return baseSize, 1
+    end
+
+    local scale = getTextScale(boxSize, scalingSettings)
+    local minSize = math.max(math.floor((tonumber(scalingSettings and scalingSettings.MinSize) or 6) + 0.5), 1)
+    return math.max(math.floor(baseSize * scale + 0.5), minSize), scale
+end
+
+local function getMinimumBoxSize(settings, boxSettings, projectedSize)
     local minWidth = tonumber(boxSettings.MinWidth) or 32
     local minHeight = tonumber(boxSettings.MinHeight) or 48
 
@@ -421,10 +450,11 @@ local function getMinimumBoxSize(settings, boxSettings)
         local side = textSettings.Anchor
         local layout = sideLayouts[side]
         if layout and textSettings.Enabled then
-            local textSize = math.floor(tonumber(textSettings.Size) or 10)
+            local textSize, scale = getScaledTextSize(textSettings.Size, projectedSize, settings.TextScaling, textSettings)
+            local spacing = (tonumber(textSettings.Spacing) or (tonumber(textSettings.Size) or 10) + 4) * scale
             layout.Count = layout.Count + 1
             layout.Size = math.max(layout.Size, textSize)
-            layout.Spacing = math.max(layout.Spacing, tonumber(textSettings.Spacing) or 0, textSize + 4, 12)
+            layout.Spacing = math.max(layout.Spacing, spacing, textSize + 2)
         end
     end
 
@@ -432,10 +462,11 @@ local function getMinimumBoxSize(settings, boxSettings)
     local healthText = healthSettings.Text or {}
     local healthLayout = sideLayouts[healthSettings.Side]
     if healthLayout and healthSettings.Enabled and healthText.Enabled then
-        local textSize = math.floor(tonumber(healthText.Size) or 10)
+        local textSize, scale = getScaledTextSize(healthText.Size, projectedSize, settings.TextScaling, healthText)
+        local spacing = (tonumber(healthText.Spacing) or (tonumber(healthText.Size) or 10) + 4) * scale
         healthLayout.Count = healthLayout.Count + 1
         healthLayout.Size = math.max(healthLayout.Size, textSize)
-        healthLayout.Spacing = math.max(healthLayout.Spacing, tonumber(healthText.Spacing) or 0, textSize + 4, 12)
+        healthLayout.Spacing = math.max(healthLayout.Spacing, spacing, textSize + 2)
     end
 
     for _, layout in pairs(sideLayouts) do
@@ -465,7 +496,7 @@ local function getBox(character, settings)
         return position, size, visible
     end
 
-    local minWidth, minHeight = getMinimumBoxSize(settings, boxSettings)
+    local minWidth, minHeight = getMinimumBoxSize(settings, boxSettings, size)
     local maxMinimumScale = math.max(tonumber(boxSettings.MaxMinimumScale) or 1.5, 1)
     local absoluteMinWidth = math.max(tonumber(boxSettings.AbsoluteMinWidth) or 12, 1)
     local absoluteMinHeight = math.max(tonumber(boxSettings.AbsoluteMinHeight) or 18, 1)
@@ -615,7 +646,7 @@ local function formatHealthText(health, maxHealth, healthPercent, textSettings)
     return tostring(math.floor(healthPercent * 100)) .. "%"
 end
 
-local function updateHealthValue(espName, objectId, position, size, health, maxHealth, settings)
+local function updateHealthValue(espName, objectId, position, size, health, maxHealth, settings, textScaling)
     settings = settings or {}
     if settings.Enabled == false or not health or not maxHealth or maxHealth <= 0 then
         updateDraw(espName, objectId, "HealthBG", { Visible = false })
@@ -681,7 +712,8 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
     local textSettings = settings.Text or {}
     local healthTextInfo
     if textSettings.Enabled then
-        local textSize = math.floor(tonumber(textSettings.Size) or tonumber(settings.TextSize) or 10)
+        local baseTextSize = tonumber(textSettings.Size) or tonumber(settings.TextSize) or 10
+        local textSize = getScaledTextSize(baseTextSize, size, textScaling, textSettings)
         local textValue = formatHealthText(health, maxHealth, healthPercent, textSettings)
         local textWidth = tonumber(textSettings.Width)
         local reserveTextWidth = textWidth or estimateTextWidth(textValue, textSize)
@@ -699,7 +731,7 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
                     Anchor = side,
                     Text = textValue,
                     Color = textSettings.Color or Color3.fromRGB(255, 255, 255),
-                    Size = textSize,
+                    Size = baseTextSize,
                     Font = textSettings.Font,
                     Width = textWidth,
                     Spacing = textSettings.Spacing,
@@ -707,6 +739,7 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
                     Order = textSettings.Order or 0,
                     Outline = textSettings.Outline,
                     OutlineColor = textSettings.OutlineColor,
+                    ScaleWithBox = textSettings.ScaleWithBox,
                 },
             }
         end
@@ -748,7 +781,7 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
         Text = healthTextInfo,
     }
 end
-local function updateHealth(espName, objectId, position, size, humanoid, settings)
+local function updateHealth(espName, objectId, position, size, humanoid, settings, textScaling)
     if not humanoid then
         updateDraw(espName, objectId, "HealthBG", { Visible = false })
         updateDraw(espName, objectId, "Health", { Visible = false })
@@ -756,9 +789,9 @@ local function updateHealth(espName, objectId, position, size, humanoid, setting
         return 0, nil
     end
 
-    return updateHealthValue(espName, objectId, position, size, humanoid.Health, humanoid.MaxHealth, settings)
+    return updateHealthValue(espName, objectId, position, size, humanoid.Health, humanoid.MaxHealth, settings, textScaling)
 end
-local function updateTexts(espName, objectId, player, character, boxPosition, boxSize, info, texts)
+local function updateTexts(espName, objectId, player, character, boxPosition, boxSize, info, texts, textScaling)
     if type(texts) ~= "table" then return end
 
     local items = {}
@@ -828,7 +861,8 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
             value = tostring(value or "")
 
             local anchor = textSettings.Anchor or "Top"
-            local textSize = math.floor(tonumber(textSettings.Size) or 10)
+            local baseTextSize = tonumber(textSettings.Size) or 10
+            local textSize, textScale = getScaledTextSize(baseTextSize, boxSize, textScaling, textSettings)
             local drawing = createDraw(espName, objectId, element, "Text")
             updateDraw(espName, objectId, element, {
                 Text = value,
@@ -842,8 +876,10 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
             local textBounds = drawing and drawing.TextBounds or Vector2.zero
             local measuredWidth = textBounds.X > 0 and math.ceil(textBounds.X) or estimateTextWidth(value, textSize)
             local measuredHeight = textBounds.Y > 0 and math.ceil(textBounds.Y) or textSize
-            local spacing = math.max(tonumber(textSettings.Spacing) or 0, measuredHeight + 2, 12)
-            local offset = textSettings.Offset or Vector2.zero
+            local configuredSpacing = tonumber(textSettings.Spacing) or (baseTextSize + 4)
+            local spacing = math.max(configuredSpacing * textScale, measuredHeight + 1)
+            local configuredOffset = textSettings.Offset or Vector2.zero
+            local offset = configuredOffset * textScale
             local slot = used[anchor] or 0
             used[anchor] = slot + 1
 
@@ -857,8 +893,8 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 offset = offset + Vector2.new(0, (slot - ((counts.Right or 1) - 1) / 2) * spacing)
             end
 
-            local sidePadding = math.max(textSettings.Padding or 2, 1)
-            local sideWidth = textSettings.Width or measuredWidth
+            local sidePadding = math.max((tonumber(textSettings.Padding) or 2) * textScale, 1)
+            local sideWidth = textSettings.Width and textSettings.Width * textScale or measuredWidth
             local position, center = anchorPosition(boxPosition, boxSize, anchor, offset)
             local healthBar = info and info.HealthBar
             local attachedToHealth = healthBar
@@ -1090,7 +1126,7 @@ local function updatePlayerEsp(player, data)
         end
     end
 
-    local _, _, healthBar = updateHealth(espName, objectId, position, size, humanoid, settings.Health or {})
+    local _, _, healthBar = updateHealth(espName, objectId, position, size, humanoid, settings.Health or {}, settings.TextScaling)
     updateHeadCircle(espName, objectId, character, settings.HeadCircle or {})
     updateSkeleton(espName, objectId, character, settings.Skeleton or {})
     updateTexts(espName, objectId, player, character, position, size, {
@@ -1098,7 +1134,7 @@ local function updatePlayerEsp(player, data)
         Root = root,
         Humanoid = humanoid,
         HealthBar = healthBar,
-    }, settings.Texts)
+    }, settings.Texts, settings.TextScaling)
 end
 
 local function isTrackedObjectValid(object, settings)
@@ -1496,7 +1532,16 @@ function EspHandler.UpdateHealthBar(espName, objectId, position, size, health, m
 
     maxHealth = maxHealth or 1
     health = health or 0
-    return updateHealthValue(espName, objectId, position, size, health, maxHealth, healthSettings)
+    return updateHealthValue(
+        espName,
+        objectId,
+        position,
+        size,
+        health,
+        maxHealth,
+        healthSettings,
+        healthSettings and healthSettings.TextScaling
+    )
 end
 
 function EspHandler.UpdateHealth(espName, objectId, position, size, health, maxHealth, healthSettings)
