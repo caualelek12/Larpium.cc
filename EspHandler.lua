@@ -20,7 +20,7 @@ end
 
 local EspHandler = {}
 
-EspHandler.Version = "2026-06-26-clean-corners-min-box"
+EspHandler.Version = "2026-06-26-text-bounds-layout"
 EspHandler.Enabled = false
 EspHandler.Connections = {}
 EspHandler.Running = {}
@@ -87,8 +87,9 @@ EspHandler.Settings = {
                 Color = Color3.fromRGB(255, 255, 255),
                 Size = 10,
                 Font = nil,
-                Width = 24,
+                Width = nil, -- nil = use Drawing.TextBounds
                 Outline = true,
+                OutlineColor = Color3.fromRGB(0, 0, 0),
             },
         },
 
@@ -573,8 +574,10 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
     local textSettings = settings.Text or {}
     local healthTextInfo
     if textSettings.Enabled then
-        local textWidth = textSettings.Width or 24
         local textSize = math.floor(tonumber(textSettings.Size) or tonumber(settings.TextSize) or 10)
+        local textValue = formatHealthText(health, maxHealth, healthPercent, textSettings)
+        local textWidth = tonumber(textSettings.Width)
+        local reserveTextWidth = textWidth or estimateTextWidth(textValue, textSize)
         local textPosition
         local textCenter = false
 
@@ -583,11 +586,11 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
             textPosition = Vector2.new(bgPosition.X + bgSize.X / 2, side == "Top" and bgPosition.Y - textSize - textGap or bgPosition.Y + thickness + textGap)
         else
             healthTextInfo = {
-                Value = formatHealthText(health, maxHealth, healthPercent, textSettings),
+                Value = textValue,
                 Settings = {
                     Enabled = true,
                     Anchor = side,
-                    Text = formatHealthText(health, maxHealth, healthPercent, textSettings),
+                    Text = textValue,
                     Color = textSettings.Color or Color3.fromRGB(255, 255, 255),
                     Size = textSize,
                     Font = textSettings.Font,
@@ -596,6 +599,7 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
                     Padding = textGap,
                     Order = textSettings.Order or 0,
                     Outline = textSettings.Outline,
+                    OutlineColor = textSettings.OutlineColor,
                 },
             }
         end
@@ -604,20 +608,21 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
             createDraw(espName, objectId, "HealthText", "Text")
             updateDraw(espName, objectId, "HealthText", {
                 Visible = true,
-                Text = formatHealthText(health, maxHealth, healthPercent, textSettings),
+                Text = textValue,
                 Position = textPosition,
                 Color = textSettings.Color or Color3.fromRGB(255, 255, 255),
                 Size = textSize,
                 Font = textSettings.Font,
                 Center = textSettings.Center ~= nil and textSettings.Center or textCenter,
                 Outline = textSettings.Outline ~= false,
+                OutlineColor = textSettings.OutlineColor or Color3.fromRGB(0, 0, 0),
             })
         else
             updateDraw(espName, objectId, "HealthText", { Visible = false })
         end
 
         if not isHorizontal and settings.ReserveTextSpace ~= false then
-            reserve = reserve + textGap + textWidth
+            reserve = reserve + textGap + reserveTextWidth
         end
     else
         updateDraw(espName, objectId, "HealthText", { Visible = false })
@@ -717,7 +722,19 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
 
             local anchor = textSettings.Anchor or "Top"
             local textSize = math.floor(tonumber(textSettings.Size) or 10)
-            local spacing = math.max(tonumber(textSettings.Spacing) or 0, textSize + 4, 12)
+            local drawing = createDraw(espName, objectId, element, "Text")
+            updateDraw(espName, objectId, element, {
+                Text = value,
+                Size = textSize,
+                Font = textSettings.Font,
+                Outline = textSettings.Outline ~= false,
+                OutlineColor = textSettings.OutlineColor or Color3.fromRGB(0, 0, 0),
+            })
+
+            local textBounds = drawing and drawing.TextBounds or Vector2.zero
+            local measuredWidth = textBounds.X > 0 and math.ceil(textBounds.X) or estimateTextWidth(value, textSize)
+            local measuredHeight = textBounds.Y > 0 and math.ceil(textBounds.Y) or textSize
+            local spacing = math.max(tonumber(textSettings.Spacing) or 0, measuredHeight + 2, 12)
             local offset = textSettings.Offset or Vector2.zero
             local slot = used[anchor] or 0
             used[anchor] = slot + 1
@@ -733,7 +750,7 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
             end
 
             local sidePadding = math.max(textSettings.Padding or 2, 1)
-            local sideWidth = textSettings.Width or estimateTextWidth(value, textSize)
+            local sideWidth = textSettings.Width or measuredWidth
             local position, center = anchorPosition(boxPosition, boxSize, anchor, offset)
             local healthBar = info and info.HealthBar
             local attachedToHealth = healthBar
@@ -765,7 +782,6 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 center = false
             end
 
-            createDraw(espName, objectId, element, "Text")
             updateDraw(espName, objectId, element, {
                 Visible = true,
                 Text = value,
@@ -775,6 +791,7 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 Font = textSettings.Font,
                 Center = textSettings.Center ~= nil and textSettings.Center or center,
                 Outline = textSettings.Outline ~= false,
+                OutlineColor = textSettings.OutlineColor or Color3.fromRGB(0, 0, 0),
             })
         else
             updateDraw(espName, objectId, element, { Visible = false })
@@ -1283,6 +1300,7 @@ function EspHandler.UpdateText(espName, objectId, textName, text, position, text
         Font = textSettings.Font,
         Center = textSettings.Center ~= false,
         Outline = textSettings.Outline ~= false,
+        OutlineColor = textSettings.OutlineColor or Color3.fromRGB(0, 0, 0),
     })
 end
 
