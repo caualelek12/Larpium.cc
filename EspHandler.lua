@@ -20,7 +20,7 @@ end
 
 local EspHandler = {}
 
-EspHandler.Version = "2026-06-26-optimized-render"
+EspHandler.Version = "2026-06-26-distance-scaled-boxes"
 EspHandler.Enabled = false
 EspHandler.UpdateRate = 60
 EspHandler.Connections = {}
@@ -46,6 +46,9 @@ EspHandler.Settings = {
             MinWidth = 32,
             MinHeight = 48,
             FitSideText = true,
+            MaxMinimumScale = 1.5,
+            AbsoluteMinWidth = 12,
+            AbsoluteMinHeight = 18,
         },
 
         Box = {
@@ -463,8 +466,13 @@ local function getBox(character, settings)
     end
 
     local minWidth, minHeight = getMinimumBoxSize(settings, boxSettings)
-    local width = math.max(size.X, minWidth)
-    local height = math.max(size.Y, minHeight)
+    local maxMinimumScale = math.max(tonumber(boxSettings.MaxMinimumScale) or 1.5, 1)
+    local absoluteMinWidth = math.max(tonumber(boxSettings.AbsoluteMinWidth) or 12, 1)
+    local absoluteMinHeight = math.max(tonumber(boxSettings.AbsoluteMinHeight) or 18, 1)
+    local maxWidth = math.max(size.X * maxMinimumScale, absoluteMinWidth)
+    local maxHeight = math.max(size.Y * maxMinimumScale, absoluteMinHeight)
+    local width = math.max(size.X, math.min(minWidth, maxWidth))
+    local height = math.max(size.Y, math.min(minHeight, maxHeight))
     local center = position + size / 2
 
     return center - Vector2.new(width, height) / 2, Vector2.new(width, height), true
