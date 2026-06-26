@@ -9,8 +9,18 @@ getgenv().PlayersHandler = PlayersHandler
 getgenv().DrawingHelp = DrawingHelp
 getgenv().CalculationHandler = CalculationHandler
 
+local PreviousEspHandler = getgenv().EspHandler
+if type(PreviousEspHandler) == "table" then
+    if type(PreviousEspHandler.Cleanup) == "function" then
+        pcall(PreviousEspHandler.Cleanup)
+    elseif type(PreviousEspHandler.StopGroup) == "function" then
+        pcall(PreviousEspHandler.StopGroup, nil, true)
+    end
+end
+
 local EspHandler = {}
 
+EspHandler.Version = "2026-06-26-corner-cleanup"
 EspHandler.Enabled = false
 EspHandler.Connections = {}
 EspHandler.Running = {}
@@ -1270,4 +1280,5 @@ Players.PlayerRemoving:Connect(function(player)
     removeObject(DEFAULT_ESP, player.UserId)
 end)
 
+getgenv().EspHandler = EspHandler
 return EspHandler
