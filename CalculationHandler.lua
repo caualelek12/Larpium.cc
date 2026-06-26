@@ -51,6 +51,10 @@ local BodyPartNames = {
     RightArm = true,
     LeftLeg = true,
     RightLeg = true,
+    ["Left Arm"] = true,
+    ["Right Arm"] = true,
+    ["Left Leg"] = true,
+    ["Right Leg"] = true,
     LeftUpperArm = true,
     LeftLowerArm = true,
     LeftHand = true,
@@ -91,7 +95,9 @@ local function shouldUsePart(part, model, options, bodyOnly)
     end
 
     if bodyOnly and not BodyPartNames[part.Name] then
-        return false
+        if part.Parent ~= model then
+            return false
+        end
     end
 
     return true
