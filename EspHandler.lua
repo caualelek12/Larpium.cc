@@ -4,8 +4,10 @@ local Camera = workspace.CurrentCamera
 
 local PlayersHandler = getgenv().PlayersHandler or loadstring(game:HttpGet("https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/PlayersHandler.lua"))()
 local DrawingHelp = getgenv().DrawingHelp or loadstring(game:HttpGet("https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/DrawingHelp.lua"))()
+local CalculationHandler = getgenv().CalculationHandler or loadstring(game:HttpGet("https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/CalculationHandler.lua"))()
 getgenv().PlayersHandler = PlayersHandler
 getgenv().DrawingHelp = DrawingHelp
+getgenv().CalculationHandler = CalculationHandler
 
 local EspHandler = {}
 
@@ -48,12 +50,12 @@ EspHandler.Settings = {
             Enabled = true,
             Side = "Left", -- Left / Right / Top / Bottom
             Width = 4,
-            Color = Color3.fromRGB(0, 255, 80),
+            Color = Color3.fromRGB(255, 50, 50),
             LowColor = Color3.fromRGB(255, 60, 60),
             BackgroundColor = Color3.fromRGB(30, 30, 30),
             Gap = 1,
             TextGap = 1,
-            ReserveTextSpace = true,
+            ReserveTextSpace = false,
             Length = nil, -- nil = auto scale to box height/width
             Text = {
                 Enabled = true,
@@ -69,24 +71,26 @@ EspHandler.Settings = {
         Texts = {
             Name = {
                 Enabled = true,
-                Anchor = "Top",
+                Anchor = "Right",
                 Text = function(player)
                     return player.Name
                 end,
                 Color = Color3.fromRGB(255, 255, 255),
                 Size = 10,
-                Offset = Vector2.new(0, -16),
+                Offset = Vector2.new(2, 0),
+                Order = 1,
             },
 
             Distance = {
                 Enabled = true,
-                Anchor = "Bottom",
+                Anchor = "Right",
                 Text = function(_, _, info)
                     return tostring(math.floor(info.Distance)) .. "m"
                 end,
                 Color = Color3.fromRGB(200, 200, 200),
                 Size = 10,
-                Offset = Vector2.new(0, 2),
+                Offset = Vector2.new(2, 0),
+                Order = 2,
             },
 
             Weapon = {
@@ -98,19 +102,21 @@ EspHandler.Settings = {
                 end,
                 Color = Color3.fromRGB(255, 220, 120),
                 Size = 10,
-                Offset = Vector2.new(1, 0),
+                Offset = Vector2.new(2, 0),
+                Order = 3,
             },
 
             State = {
                 Enabled = false,
-                Anchor = "Left",
+                Anchor = "Right",
                 Text = function(_, character)
                     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
                     return humanoid and humanoid:GetState().Name or "Unknown"
                 end,
                 Color = Color3.fromRGB(160, 220, 255),
                 Size = 10,
-                Offset = Vector2.new(-1, 0),
+                Offset = Vector2.new(2, 0),
+                Order = 4,
             },
         },
     },
@@ -260,65 +266,15 @@ local function hasRunningGroups()
 end
 
 local function anchorPosition(position, size, anchor, offset)
-    offset = offset or Vector2.zero
-
-    if anchor == "Top" then
-        return Vector2.new(position.X + size.X / 2, position.Y) + offset, true
-    elseif anchor == "Bottom" then
-        return Vector2.new(position.X + size.X / 2, position.Y + size.Y) + offset, true
-    elseif anchor == "Left" then
-        return Vector2.new(position.X, position.Y + size.Y / 2) + offset, false
-    elseif anchor == "Right" then
-        return Vector2.new(position.X + size.X, position.Y + size.Y / 2) + offset, false
-    elseif anchor == "Center" then
-        return Vector2.new(position.X + size.X / 2, position.Y + size.Y / 2) + offset, true
-    end
-
-    return position + offset, true
+    return CalculationHandler.AnchorPosition(position, size, anchor, offset)
 end
 
 local function getBox(character)
-    local cf, size = character:GetBoundingBox()
-    local half = size * 0.5
-    local viewport = Camera.ViewportSize
-
-    local minX, minY = math.huge, math.huge
-    local maxX, maxY = -math.huge, -math.huge
-    local visible = false
-    local validPoints = 0
-
-    for x = -1, 1, 2 do
-        for y = -1, 1, 2 do
-            for z = -1, 1, 2 do
-                local world = cf:PointToWorldSpace(Vector3.new(half.X * x, half.Y * y, half.Z * z))
-                local screen, onScreen = Camera:WorldToViewportPoint(world)
-
-                if screen.Z > 0 then
-                    validPoints = validPoints + 1
-                    visible = visible or onScreen
-
-                    local sx = math.clamp(screen.X, -viewport.X, viewport.X * 2)
-                    local sy = math.clamp(screen.Y, -viewport.Y, viewport.Y * 2)
-
-                    minX = math.min(minX, sx)
-                    minY = math.min(minY, sy)
-                    maxX = math.max(maxX, sx)
-                    maxY = math.max(maxY, sy)
-                end
-            end
-        end
-    end
-
-    if validPoints == 0 or minX == math.huge or minY == math.huge then
-        return Vector2.zero, Vector2.zero, false
-    end
-
-    local boxSize = Vector2.new(maxX - minX, maxY - minY)
-    if boxSize.X < 2 or boxSize.Y < 2 or boxSize.X > viewport.X * 0.9 or boxSize.Y > viewport.Y * 0.9 then
-        return Vector2.zero, Vector2.zero, false
-    end
-
-    return Vector2.new(minX, minY), boxSize, visible
+    return CalculationHandler.GetModelScreenBox(character, Camera, {
+        ClampPadding = 0,
+        MaxViewportScale = 0.9,
+        MinSize = 2,
+    })
 end
 local function updateCornerBox(espName, objectId, position, size, boxSettings)
     local thickness = boxSettings.Thickness or 1
@@ -367,7 +323,7 @@ local function updateSquareBox(espName, objectId, position, size, boxSettings)
 end
 
 local function estimateTextWidth(text, size)
-    return math.max(8, math.floor(#tostring(text or "") * (size or 10) * 0.55))
+    return CalculationHandler.EstimateTextWidth(text, size)
 end
 
 local function formatHealthText(health, maxHealth, healthPercent, textSettings)
@@ -437,7 +393,7 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
         Visible = true,
         Position = fillPosition,
         Size = fillSize,
-        Color = healthPercent > 0.35 and (settings.Color or Color3.fromRGB(0, 255, 80)) or (settings.LowColor or Color3.fromRGB(255, 60, 60)),
+        Color = healthPercent > 0.35 and (settings.Color or Color3.fromRGB(255, 50, 50)) or (settings.LowColor or Color3.fromRGB(255, 60, 60)),
         Filled = true,
     })
 
@@ -551,19 +507,15 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
             end
 
             local position, center = anchorPosition(boxPosition, boxSize, anchor, offset)
-            local healthReserve = 0
-            if info and info.HealthSide == anchor then
-                healthReserve = info.HealthReserve or 0
-            end
 
             local sidePadding = textSettings.Padding or 1
             local sideWidth = textSettings.Width or estimateTextWidth(value, textSize)
 
             if anchor == "Left" then
-                position = position - Vector2.new(sideWidth + sidePadding + healthReserve, 0)
+                position = position - Vector2.new(sideWidth + sidePadding, 0)
                 center = false
             elseif anchor == "Right" then
-                position = position + Vector2.new(sidePadding + healthReserve, 0)
+                position = position + Vector2.new(sidePadding, 0)
                 center = false
             end
 
@@ -721,15 +673,13 @@ local function updatePlayerEsp(player, data)
         end
     end
 
-    local healthReserve, healthSide = updateHealth(espName, objectId, position, size, humanoid, settings.Health or {})
+    updateHealth(espName, objectId, position, size, humanoid, settings.Health or {})
     updateHeadCircle(espName, objectId, character, settings.HeadCircle or {})
     updateSkeleton(espName, objectId, character, settings.Skeleton or {})
     updateTexts(espName, objectId, player, character, position, size, {
         Distance = distance,
         Root = root,
         Humanoid = humanoid,
-        HealthReserve = healthReserve,
-        HealthSide = healthSide,
     }, settings.Texts)
 end
 
