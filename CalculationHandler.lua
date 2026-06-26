@@ -1,4 +1,5 @@
 local CalculationHandler = {}
+local ModelPartCache = setmetatable({}, { __mode = "k" })
 
 local function getCamera(camera)
     return camera or workspace.CurrentCamera
@@ -102,6 +103,24 @@ function CalculationHandler.GetModelBoxParts(model, options)
         return {}
     end
 
+    local useCache = options.CacheParts ~= false and options.BodyOnly ~= false
+    if useCache then
+        local cached = ModelPartCache[model]
+        if cached then
+            local valid = true
+            for index = 1, #cached do
+                if cached[index].Parent == nil then
+                    valid = false
+                    break
+                end
+            end
+
+            if valid then
+                return cached
+            end
+        end
+    end
+
     local descendants = model:GetDescendants()
     local parts = {}
 
@@ -121,7 +140,15 @@ function CalculationHandler.GetModelBoxParts(model, options)
         end
     end
 
+    if useCache and #parts >= 6 then
+        ModelPartCache[model] = parts
+    end
+
     return parts
+end
+
+function CalculationHandler.InvalidateModelCache(model)
+    ModelPartCache[model] = nil
 end
 
 function CalculationHandler.GetModelWorldBox(model)
@@ -197,7 +224,7 @@ local function addPartCorners(points, part)
     end
 end
 
-function CalculationHandler.GetModelPartsScreenBox(model, camera, options)
+function CalculationHandler.GetModelPartsExactScreenBox(model, camera, options)
     camera = getCamera(camera)
     options = options or {}
 
@@ -214,6 +241,76 @@ function CalculationHandler.GetModelPartsScreenBox(model, camera, options)
     for _, part in ipairs(parts) do
         addPartCorners(points, part)
     end
+
+    return projectBoxPoints(camera, points, options)
+end
+
+local function getPartsOrientedBounds(model, parts)
+    local minX, minY, minZ = math.huge, math.huge, math.huge
+    local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
+    local count = 0
+    local root = model:FindFirstChild("HumanoidRootPart")
+    local basis = root and root.CFrame or parts[1].CFrame
+
+    for index = 1, #parts do
+        local part = parts[index]
+        if part.Parent then
+            local cf = basis:ToObjectSpace(part.CFrame)
+            local half = part.Size * 0.5
+            local right = cf.RightVector
+            local up = cf.UpVector
+            local look = cf.LookVector
+            local extentX = math.abs(right.X) * half.X + math.abs(up.X) * half.Y + math.abs(look.X) * half.Z
+            local extentY = math.abs(right.Y) * half.X + math.abs(up.Y) * half.Y + math.abs(look.Y) * half.Z
+            local extentZ = math.abs(right.Z) * half.X + math.abs(up.Z) * half.Y + math.abs(look.Z) * half.Z
+            local position = cf.Position
+
+            minX = math.min(minX, position.X - extentX)
+            minY = math.min(minY, position.Y - extentY)
+            minZ = math.min(minZ, position.Z - extentZ)
+            maxX = math.max(maxX, position.X + extentX)
+            maxY = math.max(maxY, position.Y + extentY)
+            maxZ = math.max(maxZ, position.Z + extentZ)
+            count = count + 1
+        end
+    end
+
+    if count == 0 then
+        return nil, nil, nil
+    end
+
+    return basis, Vector3.new(minX, minY, minZ), Vector3.new(maxX, maxY, maxZ)
+end
+
+function CalculationHandler.GetModelPartsScreenBox(model, camera, options)
+    camera = getCamera(camera)
+    options = options or {}
+
+    if not model or not camera then
+        return Vector2.zero, Vector2.zero, false
+    end
+
+    local parts = CalculationHandler.GetModelBoxParts(model, options)
+    if #parts == 0 then
+        return Vector2.zero, Vector2.zero, false
+    end
+
+    local basis, minimum, maximum = getPartsOrientedBounds(model, parts)
+    if not basis then
+        CalculationHandler.InvalidateModelCache(model)
+        return Vector2.zero, Vector2.zero, false
+    end
+
+    local points = {
+        basis:PointToWorldSpace(Vector3.new(minimum.X, minimum.Y, minimum.Z)),
+        basis:PointToWorldSpace(Vector3.new(minimum.X, minimum.Y, maximum.Z)),
+        basis:PointToWorldSpace(Vector3.new(minimum.X, maximum.Y, minimum.Z)),
+        basis:PointToWorldSpace(Vector3.new(minimum.X, maximum.Y, maximum.Z)),
+        basis:PointToWorldSpace(Vector3.new(maximum.X, minimum.Y, minimum.Z)),
+        basis:PointToWorldSpace(Vector3.new(maximum.X, minimum.Y, maximum.Z)),
+        basis:PointToWorldSpace(Vector3.new(maximum.X, maximum.Y, minimum.Z)),
+        basis:PointToWorldSpace(Vector3.new(maximum.X, maximum.Y, maximum.Z)),
+    }
 
     return projectBoxPoints(camera, points, options)
 end
@@ -250,6 +347,8 @@ function CalculationHandler.GetModelScreenBox(model, camera, options)
 
     if options.Method == "Roblox" or options.BoxMethod == "Roblox" then
         return CalculationHandler.GetModelRobloxScreenBox(model, camera, options)
+    elseif options.Method == "PartsExact" or options.BoxMethod == "PartsExact" then
+        return CalculationHandler.GetModelPartsExactScreenBox(model, camera, options)
     end
 
     return CalculationHandler.GetModelPartsScreenBox(model, camera, options)

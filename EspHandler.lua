@@ -20,11 +20,14 @@ end
 
 local EspHandler = {}
 
-EspHandler.Version = "2026-06-26-text-bounds-layout"
+EspHandler.Version = "2026-06-26-optimized-render"
 EspHandler.Enabled = false
+EspHandler.UpdateRate = 60
 EspHandler.Connections = {}
 EspHandler.Running = {}
 EspHandler.Objects = {}
+EspHandler.DrawingRefs = {}
+EspHandler.ObjectVisibility = {}
 EspHandler.ObjectIds = setmetatable({}, { __mode = "k" })
 EspHandler.NextObjectId = 0
 EspHandler.CornerOutlineCleanup = {}
@@ -207,36 +210,112 @@ end
 local function createDraw(espName, objectId, element, drawType)
     espName = getGroup(espName)
 
-    local name = drawName(espName, objectId, element)
+    local objectKey = getObjectId(objectId)
+    local groupRefs = EspHandler.DrawingRefs[espName]
+    if not groupRefs then
+        groupRefs = {}
+        EspHandler.DrawingRefs[espName] = groupRefs
+    end
+
+    local objectRefs = groupRefs[objectKey]
+    if not objectRefs then
+        objectRefs = {}
+        groupRefs[objectKey] = objectRefs
+    elseif objectRefs[element] then
+        return objectRefs[element], objectKey .. "_" .. tostring(element)
+    end
+
+    local name = objectKey .. "_" .. tostring(element)
     local cache = DrawingHelp.DrawCaches[espName]
-    if cache[name] then return cache[name], name end
+    if cache[name] then
+        objectRefs[element] = cache[name]
+        return cache[name], name
+    end
 
     local drawing = DrawingHelp.CreateDrawing(drawType, name, espName)
+    objectRefs[element] = drawing
     return drawing, name
 end
 
 local function updateDraw(espName, objectId, element, properties)
     espName = getGroup(espName)
-    return DrawingHelp.UpdateDraw(drawName(espName, objectId, element), espName, properties)
+    local objectKey = getObjectId(objectId)
+    local groupRefs = EspHandler.DrawingRefs[espName]
+    local objectRefs = groupRefs and groupRefs[objectKey]
+    local drawing = objectRefs and objectRefs[element]
+
+    if not drawing then
+        local name = objectKey .. "_" .. tostring(element)
+        drawing = DrawingHelp.DrawCaches[espName][name]
+        if not drawing then return nil end
+
+        groupRefs = groupRefs or {}
+        objectRefs = objectRefs or {}
+        EspHandler.DrawingRefs[espName] = groupRefs
+        groupRefs[objectKey] = objectRefs
+        objectRefs[element] = drawing
+    end
+
+    if properties.Visible == true then
+        local visibility = EspHandler.ObjectVisibility[espName]
+        if not visibility then
+            visibility = {}
+            EspHandler.ObjectVisibility[espName] = visibility
+        end
+        visibility[objectKey] = true
+    end
+
+    for property, value in pairs(properties) do
+        if drawing[property] ~= value then
+            drawing[property] = value
+        end
+    end
+
+    return drawing
 end
 
 local function removeDraw(espName, objectId, element)
     espName = getGroup(espName)
 
     local cache = DrawingHelp.DrawCaches[espName]
-    local name = drawName(espName, objectId, element)
+    local objectKey = getObjectId(objectId)
+    local name = objectKey .. "_" .. tostring(element)
     local drawing = cache[name]
     if not drawing then return end
 
     drawing.Visible = false
     drawing:Remove()
     cache[name] = nil
+
+    local groupRefs = EspHandler.DrawingRefs[espName]
+    local objectRefs = groupRefs and groupRefs[objectKey]
+    if objectRefs then
+        objectRefs[element] = nil
+    end
 end
 
 local function hideObject(espName, objectId)
     espName = getGroup(espName)
 
-    local prefix = getObjectId(objectId) .. "_"
+    local objectKey = getObjectId(objectId)
+    local visibility = EspHandler.ObjectVisibility[espName]
+    if visibility and visibility[objectKey] == false then return end
+    if not visibility then
+        visibility = {}
+        EspHandler.ObjectVisibility[espName] = visibility
+    end
+    visibility[objectKey] = false
+
+    local groupRefs = EspHandler.DrawingRefs[espName]
+    local objectRefs = groupRefs and groupRefs[objectKey]
+    if objectRefs then
+        for _, drawing in pairs(objectRefs) do
+            drawing.Visible = false
+        end
+        return
+    end
+
+    local prefix = objectKey .. "_"
     for name, drawing in pairs(DrawingHelp.DrawCaches[espName]) do
         if string.sub(name, 1, #prefix) == prefix then
             drawing.Visible = false
@@ -247,13 +326,21 @@ end
 local function removeObject(espName, objectId)
     espName = getGroup(espName)
 
-    local prefix = getObjectId(objectId) .. "_"
+    local objectKey = getObjectId(objectId)
+    local prefix = objectKey .. "_"
     for name, drawing in pairs(DrawingHelp.DrawCaches[espName]) do
         if string.sub(name, 1, #prefix) == prefix then
             drawing.Visible = false
             drawing:Remove()
             DrawingHelp.DrawCaches[espName][name] = nil
         end
+    end
+
+    if EspHandler.DrawingRefs[espName] then
+        EspHandler.DrawingRefs[espName][objectKey] = nil
+    end
+    if EspHandler.ObjectVisibility[espName] then
+        EspHandler.ObjectVisibility[espName][objectKey] = nil
     end
 end
 
@@ -273,12 +360,24 @@ local function removeGroup(espName)
         drawing:Remove()
         DrawingHelp.DrawCaches[espName][name] = nil
     end
+
+    EspHandler.DrawingRefs[espName] = nil
+    EspHandler.ObjectVisibility[espName] = nil
 end
 
 local function ensureRenderLoop()
     if EspHandler.Connections.Render then return end
 
-    EspHandler.Connections.Render = RunService.RenderStepped:Connect(function()
+    local elapsed = 0
+    EspHandler.Connections.Render = RunService.RenderStepped:Connect(function(deltaTime)
+        local updateRate = tonumber(EspHandler.UpdateRate) or 60
+        if updateRate > 0 then
+            local interval = 1 / updateRate
+            elapsed = elapsed + deltaTime
+            if elapsed < interval then return end
+            elapsed = elapsed % interval
+        end
+
         EspHandler.Update()
     end)
 end
@@ -725,6 +824,7 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
             local drawing = createDraw(espName, objectId, element, "Text")
             updateDraw(espName, objectId, element, {
                 Text = value,
+                Color = textSettings.Color or Color3.fromRGB(255, 255, 255),
                 Size = textSize,
                 Font = textSettings.Font,
                 Outline = textSettings.Outline ~= false,
@@ -784,14 +884,8 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
 
             updateDraw(espName, objectId, element, {
                 Visible = true,
-                Text = value,
                 Position = position,
-                Color = textSettings.Color or Color3.fromRGB(255, 255, 255),
-                Size = textSize,
-                Font = textSettings.Font,
                 Center = textSettings.Center ~= nil and textSettings.Center or center,
-                Outline = textSettings.Outline ~= false,
-                OutlineColor = textSettings.OutlineColor or Color3.fromRGB(0, 0, 0),
             })
         else
             updateDraw(espName, objectId, element, { Visible = false })
@@ -840,10 +934,43 @@ local SkeletonBones = {
     { "Torso", "Left Leg" },
     { "Torso", "Right Leg" },
 }
+local SkeletonPartCache = setmetatable({}, { __mode = "k" })
+
+local function getSkeletonParts(model)
+    local cached = SkeletonPartCache[model]
+    if cached then return cached end
+
+    cached = {}
+    local partCount = 0
+    for _, bone in ipairs(SkeletonBones) do
+        if cached[bone[1]] == nil then
+            local part = model:FindFirstChild(bone[1])
+            cached[bone[1]] = part or false
+            if part then partCount = partCount + 1 end
+        end
+        if cached[bone[2]] == nil then
+            local part = model:FindFirstChild(bone[2])
+            cached[bone[2]] = part or false
+            if part then partCount = partCount + 1 end
+        end
+    end
+
+    if partCount >= 6 then
+        SkeletonPartCache[model] = cached
+    end
+    return cached
+end
 
 local function hideSkeleton(espName, objectId)
+    local groupRefs = EspHandler.DrawingRefs[espName]
+    local objectRefs = groupRefs and groupRefs[getObjectId(objectId)]
+    if not objectRefs then return end
+
     for index in ipairs(SkeletonBones) do
-        updateDraw(espName, objectId, "Skeleton_" .. index, { Visible = false })
+        local drawing = objectRefs["Skeleton_" .. index]
+        if drawing then
+            drawing.Visible = false
+        end
     end
 end
 
@@ -857,21 +984,38 @@ local function updateSkeleton(espName, objectId, model, settings)
     local color = settings.Color or Color3.fromRGB(255, 255, 255)
     local thickness = settings.Thickness or 2
     local transparency = settings.Transparency or 1
+    local projected = {}
+    local parts = getSkeletonParts(model)
+
+    local function projectPart(part)
+        local cached = projected[part]
+        if cached then
+            return cached.Point, cached.Visible
+        end
+
+        local point, visible = Camera:WorldToViewportPoint(part.Position)
+        cached = {
+            Point = Vector2.new(point.X, point.Y),
+            Visible = visible,
+        }
+        projected[part] = cached
+        return cached.Point, cached.Visible
+    end
 
     for index, bone in ipairs(SkeletonBones) do
-        local partA = model:FindFirstChild(bone[1])
-        local partB = model:FindFirstChild(bone[2])
+        local partA = parts[bone[1]]
+        local partB = parts[bone[2]]
         local element = "Skeleton_" .. index
 
         if partA and partB then
-            local pointA, visibleA = Camera:WorldToViewportPoint(partA.Position)
-            local pointB, visibleB = Camera:WorldToViewportPoint(partB.Position)
+            local pointA, visibleA = projectPart(partA)
+            local pointB, visibleB = projectPart(partB)
 
             createDraw(espName, objectId, element, "Line")
             updateDraw(espName, objectId, element, {
                 Visible = visibleA or visibleB,
-                From = Vector2.new(pointA.X, pointA.Y),
-                To = Vector2.new(pointB.X, pointB.Y),
+                From = pointA,
+                To = pointB,
                 Color = color,
                 Thickness = thickness,
                 Transparency = transparency,
@@ -1417,8 +1561,18 @@ function EspHandler.SetEnabled(enabled, settings)
     end
 end
 
+function EspHandler.SetUpdateRate(rate)
+    EspHandler.UpdateRate = math.max(tonumber(rate) or 60, 0)
+    return EspHandler.UpdateRate
+end
+
 function EspHandler.Cleanup()
     EspHandler.Stop()
+
+    if EspHandler.Connections.PlayerRemoving then
+        EspHandler.Connections.PlayerRemoving:Disconnect()
+        EspHandler.Connections.PlayerRemoving = nil
+    end
 
     for espName, cache in pairs(DrawingHelp.DrawCaches) do
         if EspHandler.Settings[espName] then
@@ -1428,9 +1582,12 @@ function EspHandler.Cleanup()
             end
         end
     end
+
+    table.clear(EspHandler.DrawingRefs)
+    table.clear(EspHandler.ObjectVisibility)
 end
 
-Players.PlayerRemoving:Connect(function(player)
+EspHandler.Connections.PlayerRemoving = Players.PlayerRemoving:Connect(function(player)
     removeObject(DEFAULT_ESP, player.UserId)
 end)
 
