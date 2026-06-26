@@ -30,6 +30,9 @@ EspHandler.Settings = {
             Color = Color3.fromRGB(255, 255, 255),
             Thickness = 4,
             CornerSize = 12,
+            Outline = true,
+            OutlineColor = Color3.fromRGB(0, 0, 0),
+            OutlineThickness = 2,
         },
 
         HeadCircle = {
@@ -71,7 +74,7 @@ EspHandler.Settings = {
         Texts = {
             Name = {
                 Enabled = true,
-                Anchor = "Right",
+                Anchor = "Auto",
                 AttachTo = "HealthBar",
                 Text = function(player)
                     return player.Name
@@ -85,7 +88,7 @@ EspHandler.Settings = {
 
             Distance = {
                 Enabled = true,
-                Anchor = "Right",
+                Anchor = "Auto",
                 AttachTo = "HealthBar",
                 Text = function(_, _, info)
                     return tostring(math.floor(info.Distance)) .. "m"
@@ -99,7 +102,7 @@ EspHandler.Settings = {
 
             Weapon = {
                 Enabled = false,
-                Anchor = "Right",
+                Anchor = "Auto",
                 AttachTo = "HealthBar",
                 Text = function(_, character)
                     local tool = character and character:FindFirstChildOfClass("Tool")
@@ -114,7 +117,7 @@ EspHandler.Settings = {
 
             State = {
                 Enabled = false,
-                Anchor = "Right",
+                Anchor = "Auto",
                 AttachTo = "HealthBar",
                 Text = function(_, character)
                     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -288,6 +291,9 @@ local function updateCornerBox(espName, objectId, position, size, boxSettings)
     local thickness = boxSettings.Thickness or 1
     local color = boxSettings.Color or Color3.fromRGB(255, 255, 255)
     local corner = math.min(boxSettings.CornerSize or 12, size.X / 2, size.Y / 2)
+    local outline = boxSettings.Outline ~= false
+    local outlineColor = boxSettings.OutlineColor or Color3.fromRGB(0, 0, 0)
+    local outlineThickness = thickness + (boxSettings.OutlineThickness or 2)
 
     local lines = {
         { "TL_H", position, Vector2.new(position.X + corner, position.Y) },
@@ -301,6 +307,15 @@ local function updateCornerBox(espName, objectId, position, size, boxSettings)
     }
 
     for _, line in ipairs(lines) do
+        createDraw(espName, objectId, "BoxOutline_" .. line[1], "Line")
+        updateDraw(espName, objectId, "BoxOutline_" .. line[1], {
+            Visible = outline,
+            From = line[2],
+            To = line[3],
+            Color = outlineColor,
+            Thickness = outlineThickness,
+        })
+
         createDraw(espName, objectId, "Box_" .. line[1], "Line")
         updateDraw(espName, objectId, "Box_" .. line[1], {
             Visible = true,
@@ -312,21 +327,37 @@ local function updateCornerBox(espName, objectId, position, size, boxSettings)
     end
 
     updateDraw(espName, objectId, "Box", { Visible = false })
+    updateDraw(espName, objectId, "BoxOutline", { Visible = false })
 end
 
 local function updateSquareBox(espName, objectId, position, size, boxSettings)
+    local thickness = boxSettings.Thickness or 1
+    local outline = boxSettings.Outline ~= false
+    local outlineThickness = boxSettings.OutlineThickness or 2
+
+    createDraw(espName, objectId, "BoxOutline", "Square")
+    updateDraw(espName, objectId, "BoxOutline", {
+        Visible = outline,
+        Position = position - Vector2.new(outlineThickness, outlineThickness),
+        Size = size + Vector2.new(outlineThickness * 2, outlineThickness * 2),
+        Color = boxSettings.OutlineColor or Color3.fromRGB(0, 0, 0),
+        Thickness = thickness + outlineThickness,
+        Filled = false,
+    })
+
     createDraw(espName, objectId, "Box", "Square")
     updateDraw(espName, objectId, "Box", {
         Visible = true,
         Position = position,
         Size = size,
         Color = boxSettings.Color or Color3.fromRGB(255, 255, 255),
-        Thickness = boxSettings.Thickness or 1,
+        Thickness = thickness,
         Filled = false,
     })
 
     for _, part in ipairs({ "TL_H", "TL_V", "TR_H", "TR_V", "BL_H", "BL_V", "BR_H", "BR_V" }) do
         updateDraw(espName, objectId, "Box_" .. part, { Visible = false })
+        updateDraw(espName, objectId, "BoxOutline_" .. part, { Visible = false })
     end
 end
 
@@ -517,6 +548,8 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 offset = offset + Vector2.new(0, slot * spacing)
             elseif anchor == "Right" then
                 offset = offset + Vector2.new(0, slot * spacing)
+            elseif anchor == "Auto" then
+                offset = offset + Vector2.new(0, slot * spacing)
             end
 
             local sidePadding = textSettings.Padding or 1
@@ -530,12 +563,17 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 local healthPosition = healthBar.Position
                 local healthSize = healthBar.Size
                 local healthSide = healthBar.Side
+                local textSide = anchor
                 local baseY = healthPosition.Y + healthSize.Y / 2
 
-                if healthSide == "Left" then
-                    position = Vector2.new(healthPosition.X + healthSize.X + sidePadding, baseY) + offset
-                else
+                if textSide ~= "Left" and textSide ~= "Right" then
+                    textSide = healthSide
+                end
+
+                if textSide == "Left" then
                     position = Vector2.new(healthPosition.X - sideWidth - sidePadding, baseY) + offset
+                else
+                    position = Vector2.new(healthPosition.X + healthSize.X + sidePadding, baseY) + offset
                 end
 
                 center = false
@@ -702,8 +740,10 @@ local function updatePlayerEsp(player, data)
         end
     else
         updateDraw(espName, objectId, "Box", { Visible = false })
+        updateDraw(espName, objectId, "BoxOutline", { Visible = false })
         for _, part in ipairs({ "TL_H", "TL_V", "TR_H", "TR_V", "BL_H", "BL_V", "BR_H", "BR_V" }) do
             updateDraw(espName, objectId, "Box_" .. part, { Visible = false })
+            updateDraw(espName, objectId, "BoxOutline_" .. part, { Visible = false })
         end
     end
 
@@ -1038,8 +1078,10 @@ function EspHandler.UpdateBox(espName, objectId, position, size, boxSettings)
 
     if boxSettings.Enabled == false then
         updateDraw(espName, objectId, "Box", { Visible = false })
+        updateDraw(espName, objectId, "BoxOutline", { Visible = false })
         for _, part in ipairs({ "TL_H", "TL_V", "TR_H", "TR_V", "BL_H", "BL_V", "BR_H", "BR_V" }) do
             updateDraw(espName, objectId, "Box_" .. part, { Visible = false })
+            updateDraw(espName, objectId, "BoxOutline_" .. part, { Visible = false })
         end
         return
     end
