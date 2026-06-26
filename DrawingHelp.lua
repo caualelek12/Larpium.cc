@@ -68,7 +68,9 @@ function DrawingHelp.UpdateDraw(name, group, properties) -- Properties = Table
     end
 
     for property, value in pairs(properties) do
-        drawing[property] = value
+        if drawing[property] ~= value then
+            drawing[property] = value
+        end
     end
 
     return drawing

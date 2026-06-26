@@ -17,6 +17,7 @@ EspHandler.Running = {}
 EspHandler.Objects = {}
 EspHandler.ObjectIds = setmetatable({}, { __mode = "k" })
 EspHandler.NextObjectId = 0
+EspHandler.CornerOutlineCleanup = {}
 EspHandler.Settings = {
     Players = {
         Enabled = true,
@@ -303,45 +304,52 @@ local function hideCornerBoxOutlines(espName, objectId, part)
     end
 end
 
+local function snapVector2(value)
+    return Vector2.new(math.floor(value.X + 0.5), math.floor(value.Y + 0.5))
+end
+
+local function cleanupLegacyCornerOutlines(espName, objectId, parts)
+    local cleanupKey = espName .. ":" .. getObjectId(objectId)
+    if EspHandler.CornerOutlineCleanup[cleanupKey] then return end
+
+    EspHandler.CornerOutlineCleanup[cleanupKey] = true
+    for _, part in ipairs(parts) do
+        for index = 1, 4 do
+            updateDraw(espName, objectId, "BoxOutline_" .. part .. "_" .. index, { Visible = false })
+        end
+    end
+end
+
 local function updateCornerBox(espName, objectId, position, size, boxSettings)
     local thickness = boxSettings.Thickness or 1
     local color = boxSettings.Color or Color3.fromRGB(255, 255, 255)
     local corner = math.min(boxSettings.CornerSize or 12, size.X / 2, size.Y / 2)
     local outline = boxSettings.Outline ~= false
     local outlineColor = boxSettings.OutlineColor or Color3.fromRGB(0, 0, 0)
-    local outlineOffset = boxSettings.OutlineThickness or 1
-    local outlineOffsets = {
-        Vector2.new(-outlineOffset, 0),
-        Vector2.new(outlineOffset, 0),
-        Vector2.new(0, -outlineOffset),
-        Vector2.new(0, outlineOffset),
-    }
+    local outlineThickness = boxSettings.OutlineThickness or 1
 
     local lines = {
-        { "TL_H", position, Vector2.new(position.X + corner, position.Y) },
-        { "TL_V", position, Vector2.new(position.X, position.Y + corner) },
-        { "TR_H", Vector2.new(position.X + size.X, position.Y), Vector2.new(position.X + size.X - corner, position.Y) },
-        { "TR_V", Vector2.new(position.X + size.X, position.Y), Vector2.new(position.X + size.X, position.Y + corner) },
-        { "BL_H", Vector2.new(position.X, position.Y + size.Y), Vector2.new(position.X + corner, position.Y + size.Y) },
-        { "BL_V", Vector2.new(position.X, position.Y + size.Y), Vector2.new(position.X, position.Y + size.Y - corner) },
-        { "BR_H", Vector2.new(position.X + size.X, position.Y + size.Y), Vector2.new(position.X + size.X - corner, position.Y + size.Y) },
-        { "BR_V", Vector2.new(position.X + size.X, position.Y + size.Y), Vector2.new(position.X + size.X, position.Y + size.Y - corner) },
+        { "TL_H", snapVector2(position), snapVector2(Vector2.new(position.X + corner, position.Y)) },
+        { "TL_V", snapVector2(position), snapVector2(Vector2.new(position.X, position.Y + corner)) },
+        { "TR_H", snapVector2(Vector2.new(position.X + size.X, position.Y)), snapVector2(Vector2.new(position.X + size.X - corner, position.Y)) },
+        { "TR_V", snapVector2(Vector2.new(position.X + size.X, position.Y)), snapVector2(Vector2.new(position.X + size.X, position.Y + corner)) },
+        { "BL_H", snapVector2(Vector2.new(position.X, position.Y + size.Y)), snapVector2(Vector2.new(position.X + corner, position.Y + size.Y)) },
+        { "BL_V", snapVector2(Vector2.new(position.X, position.Y + size.Y)), snapVector2(Vector2.new(position.X, position.Y + size.Y - corner)) },
+        { "BR_H", snapVector2(Vector2.new(position.X + size.X, position.Y + size.Y)), snapVector2(Vector2.new(position.X + size.X - corner, position.Y + size.Y)) },
+        { "BR_V", snapVector2(Vector2.new(position.X + size.X, position.Y + size.Y)), snapVector2(Vector2.new(position.X + size.X, position.Y + size.Y - corner)) },
     }
 
-    for _, line in ipairs(lines) do
-        updateDraw(espName, objectId, "BoxOutline_" .. line[1], { Visible = false })
+    cleanupLegacyCornerOutlines(espName, objectId, { "TL_H", "TL_V", "TR_H", "TR_V", "BL_H", "BL_V", "BR_H", "BR_V" })
 
-        for index, offset in ipairs(outlineOffsets) do
-            local outlineName = "BoxOutline_" .. line[1] .. "_" .. index
-            createDraw(espName, objectId, outlineName, "Line")
-            updateDraw(espName, objectId, outlineName, {
-                Visible = outline,
-                From = line[2] + offset,
-                To = line[3] + offset,
-                Color = outlineColor,
-                Thickness = thickness,
-            })
-        end
+    for _, line in ipairs(lines) do
+        createDraw(espName, objectId, "BoxOutline_" .. line[1], "Line")
+        updateDraw(espName, objectId, "BoxOutline_" .. line[1], {
+            Visible = outline,
+            From = line[2],
+            To = line[3],
+            Color = outlineColor,
+            Thickness = thickness + outlineThickness * 2,
+        })
 
         createDraw(espName, objectId, "Box_" .. line[1], "Line")
         updateDraw(espName, objectId, "Box_" .. line[1], {
@@ -468,7 +476,7 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
     local textSettings = settings.Text or {}
     if textSettings.Enabled then
         local textWidth = textSettings.Width or 24
-        local textSize = textSettings.Size or 10
+        local textSize = math.floor(tonumber(textSettings.Size) or tonumber(settings.TextSize) or 10)
         local textPosition
         local textCenter = false
 
