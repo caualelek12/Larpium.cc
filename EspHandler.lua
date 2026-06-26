@@ -81,6 +81,7 @@ EspHandler.Settings = {
                 end,
                 Color = Color3.fromRGB(255, 255, 255),
                 Size = 10,
+                Spacing = 12,
                 Offset = Vector2.zero,
                 Padding = 1,
                 Order = 1,
@@ -95,6 +96,7 @@ EspHandler.Settings = {
                 end,
                 Color = Color3.fromRGB(200, 200, 200),
                 Size = 10,
+                Spacing = 12,
                 Offset = Vector2.zero,
                 Padding = 1,
                 Order = 2,
@@ -110,6 +112,7 @@ EspHandler.Settings = {
                 end,
                 Color = Color3.fromRGB(255, 220, 120),
                 Size = 10,
+                Spacing = 12,
                 Offset = Vector2.zero,
                 Padding = 1,
                 Order = 3,
@@ -125,6 +128,7 @@ EspHandler.Settings = {
                 end,
                 Color = Color3.fromRGB(160, 220, 255),
                 Size = 10,
+                Spacing = 12,
                 Offset = Vector2.zero,
                 Padding = 1,
                 Order = 4,
@@ -542,15 +546,6 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
         Right = 0,
         Center = 0,
     }
-    local activeCounts = {}
-
-    for _, item in ipairs(items) do
-        local textSettings = item.Settings
-        if textSettings.Enabled then
-            local anchor = textSettings.Anchor or "Top"
-            activeCounts[anchor] = (activeCounts[anchor] or 0) + 1
-        end
-    end
 
     for _, item in ipairs(items) do
         local textName = item.Name
@@ -594,8 +589,7 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 local healthSize = healthBar.Size
                 local healthSide = healthBar.Side
                 local textSide = anchor
-                local activeCount = math.max(activeCounts[anchor] or 1, 1)
-                local baseY = healthPosition.Y + math.max(0, (healthSize.Y - ((activeCount - 1) * spacing)) / 2)
+                local baseY = healthPosition.Y
 
                 if textSide ~= "Left" and textSide ~= "Right" then
                     textSide = healthSide
