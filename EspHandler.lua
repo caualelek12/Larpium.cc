@@ -72,50 +72,58 @@ EspHandler.Settings = {
             Name = {
                 Enabled = true,
                 Anchor = "Right",
+                AttachTo = "HealthBar",
                 Text = function(player)
                     return player.Name
                 end,
                 Color = Color3.fromRGB(255, 255, 255),
                 Size = 10,
-                Offset = Vector2.new(2, 0),
+                Offset = Vector2.zero,
+                Padding = 1,
                 Order = 1,
             },
 
             Distance = {
                 Enabled = true,
                 Anchor = "Right",
+                AttachTo = "HealthBar",
                 Text = function(_, _, info)
                     return tostring(math.floor(info.Distance)) .. "m"
                 end,
                 Color = Color3.fromRGB(200, 200, 200),
                 Size = 10,
-                Offset = Vector2.new(2, 0),
+                Offset = Vector2.zero,
+                Padding = 1,
                 Order = 2,
             },
 
             Weapon = {
                 Enabled = false,
                 Anchor = "Right",
+                AttachTo = "HealthBar",
                 Text = function(_, character)
                     local tool = character and character:FindFirstChildOfClass("Tool")
                     return tool and tool.Name or "None"
                 end,
                 Color = Color3.fromRGB(255, 220, 120),
                 Size = 10,
-                Offset = Vector2.new(2, 0),
+                Offset = Vector2.zero,
+                Padding = 1,
                 Order = 3,
             },
 
             State = {
                 Enabled = false,
                 Anchor = "Right",
+                AttachTo = "HealthBar",
                 Text = function(_, character)
                     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
                     return humanoid and humanoid:GetState().Name or "Unknown"
                 end,
                 Color = Color3.fromRGB(160, 220, 255),
                 Size = 10,
-                Offset = Vector2.new(2, 0),
+                Offset = Vector2.zero,
+                Padding = 1,
                 Order = 4,
             },
         },
@@ -439,7 +447,12 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
         reserveSide = nil
     end
 
-    return reserve, reserveSide
+    return reserve, reserveSide, {
+        Side = side,
+        Position = bgPosition,
+        Size = bgSize,
+        IsHorizontal = isHorizontal,
+    }
 end
 local function updateHealth(espName, objectId, position, size, humanoid, settings)
     if not humanoid then
@@ -506,12 +519,33 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 offset = offset + Vector2.new(0, slot * spacing)
             end
 
-            local position, center = anchorPosition(boxPosition, boxSize, anchor, offset)
-
             local sidePadding = textSettings.Padding or 1
             local sideWidth = textSettings.Width or estimateTextWidth(value, textSize)
+            local position
+            local center
+            local attachedToHealth = textSettings.AttachTo == "HealthBar" and info and info.HealthBar and not info.HealthBar.IsHorizontal
 
-            if anchor == "Left" then
+            if attachedToHealth then
+                local healthBar = info.HealthBar
+                local healthPosition = healthBar.Position
+                local healthSize = healthBar.Size
+                local healthSide = healthBar.Side
+                local baseY = healthPosition.Y + healthSize.Y / 2
+
+                if healthSide == "Left" then
+                    position = Vector2.new(healthPosition.X + healthSize.X + sidePadding, baseY) + offset
+                else
+                    position = Vector2.new(healthPosition.X - sideWidth - sidePadding, baseY) + offset
+                end
+
+                center = false
+            else
+                position, center = anchorPosition(boxPosition, boxSize, anchor, offset)
+            end
+
+            if attachedToHealth then
+                center = false
+            elseif anchor == "Left" then
                 position = position - Vector2.new(sideWidth + sidePadding, 0)
                 center = false
             elseif anchor == "Right" then
@@ -673,13 +707,14 @@ local function updatePlayerEsp(player, data)
         end
     end
 
-    updateHealth(espName, objectId, position, size, humanoid, settings.Health or {})
+    local _, _, healthBar = updateHealth(espName, objectId, position, size, humanoid, settings.Health or {})
     updateHeadCircle(espName, objectId, character, settings.HeadCircle or {})
     updateSkeleton(espName, objectId, character, settings.Skeleton or {})
     updateTexts(espName, objectId, player, character, position, size, {
         Distance = distance,
         Root = root,
         Humanoid = humanoid,
+        HealthBar = healthBar,
     }, settings.Texts)
 end
 
