@@ -555,7 +555,7 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
             value = tostring(value or "")
 
             local anchor = textSettings.Anchor or "Top"
-            local textSize = math.floor(textSettings.Size or 10)
+            local textSize = math.floor(tonumber(textSettings.Size) or 10)
             local spacing = textSettings.Spacing or math.max(textSize + 2, 10)
             local offset = textSettings.Offset or Vector2.zero
             local slot = used[anchor] or 0
@@ -573,8 +573,7 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
 
             local sidePadding = math.max(textSettings.Padding or 2, 1)
             local sideWidth = textSettings.Width or estimateTextWidth(value, textSize)
-            local position
-            local center
+            local position, center = anchorPosition(boxPosition, boxSize, anchor, offset)
             local healthBar = info and info.HealthBar
             local attachedToHealth = healthBar
                 and not healthBar.IsHorizontal
@@ -583,20 +582,16 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
             if attachedToHealth then
                 local healthPosition = healthBar.Position
                 local healthSize = healthBar.Size
-                local textSide = anchor
-                local baseY = healthPosition.Y
 
-                if textSide == "Left" then
+                if anchor == "Left" then
                     local maxRight = healthPosition.X - sidePadding
-                    position = Vector2.new(maxRight - sideWidth, baseY) + offset
+                    position = Vector2.new(maxRight - sideWidth, position.Y)
                 else
                     local minLeft = healthPosition.X + healthSize.X + sidePadding
-                    position = Vector2.new(minLeft, baseY) + offset
+                    position = Vector2.new(minLeft, position.Y)
                 end
 
                 center = false
-            else
-                position, center = anchorPosition(boxPosition, boxSize, anchor, offset)
             end
 
             if attachedToHealth then
