@@ -20,7 +20,7 @@ end
 
 local EspHandler = {}
 
-EspHandler.Version = "2026-06-26-text-stack-layout"
+EspHandler.Version = "2026-06-26-square-corners-health-stack"
 EspHandler.Enabled = false
 EspHandler.Connections = {}
 EspHandler.Running = {}
@@ -308,6 +308,8 @@ end
 
 local function hideCornerBoxOutlines(espName, objectId, part)
     updateDraw(espName, objectId, "BoxOutline_" .. part, { Visible = false })
+    updateDraw(espName, objectId, "BoxSegment_" .. part, { Visible = false })
+    updateDraw(espName, objectId, "BoxSegmentOutline_" .. part, { Visible = false })
 
     for index = 1, 4 do
         updateDraw(espName, objectId, "BoxOutline_" .. part .. "_" .. index, { Visible = false })
@@ -324,10 +326,27 @@ local function cleanupLegacyCornerOutlines(espName, objectId, parts)
 
     EspHandler.CornerOutlineCleanup[cleanupKey] = true
     for _, part in ipairs(parts) do
+        updateDraw(espName, objectId, "Box_" .. part, { Visible = false })
+        updateDraw(espName, objectId, "BoxOutline_" .. part, { Visible = false })
         for index = 1, 4 do
             updateDraw(espName, objectId, "BoxOutline_" .. part .. "_" .. index, { Visible = false })
         end
     end
+end
+
+local function lineSegmentRect(from, to, thickness)
+    from = snapVector2(from)
+    to = snapVector2(to)
+
+    if math.abs(from.X - to.X) >= math.abs(from.Y - to.Y) then
+        local x = math.min(from.X, to.X)
+        local y = math.floor(from.Y - thickness / 2 + 0.5)
+        return Vector2.new(x, y), Vector2.new(math.max(math.abs(to.X - from.X), thickness), thickness)
+    end
+
+    local x = math.floor(from.X - thickness / 2 + 0.5)
+    local y = math.min(from.Y, to.Y)
+    return Vector2.new(x, y), Vector2.new(thickness, math.max(math.abs(to.Y - from.Y), thickness))
 end
 
 local function updateCornerBox(espName, objectId, position, size, boxSettings)
@@ -352,22 +371,25 @@ local function updateCornerBox(espName, objectId, position, size, boxSettings)
     cleanupLegacyCornerOutlines(espName, objectId, { "TL_H", "TL_V", "TR_H", "TR_V", "BL_H", "BL_V", "BR_H", "BR_V" })
 
     for _, line in ipairs(lines) do
-        createDraw(espName, objectId, "BoxOutline_" .. line[1], "Line")
-        updateDraw(espName, objectId, "BoxOutline_" .. line[1], {
+        local segmentPosition, segmentSize = lineSegmentRect(line[2], line[3], thickness)
+        local outlinePosition, outlineSize = lineSegmentRect(line[2], line[3], thickness + outlineThickness * 2)
+
+        createDraw(espName, objectId, "BoxSegmentOutline_" .. line[1], "Square")
+        updateDraw(espName, objectId, "BoxSegmentOutline_" .. line[1], {
             Visible = outline,
-            From = line[2],
-            To = line[3],
+            Position = outlinePosition,
+            Size = outlineSize,
             Color = outlineColor,
-            Thickness = thickness + outlineThickness * 2,
+            Filled = true,
         })
 
-        createDraw(espName, objectId, "Box_" .. line[1], "Line")
-        updateDraw(espName, objectId, "Box_" .. line[1], {
+        createDraw(espName, objectId, "BoxSegment_" .. line[1], "Square")
+        updateDraw(espName, objectId, "BoxSegment_" .. line[1], {
             Visible = true,
-            From = line[2],
-            To = line[3],
+            Position = segmentPosition,
+            Size = segmentSize,
             Color = color,
-            Thickness = thickness,
+            Filled = true,
         })
     end
 
@@ -484,6 +506,7 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
     local reserve = isHorizontal and 0 or (thickness + gap)
     local reserveSide = isHorizontal and nil or side
     local textSettings = settings.Text or {}
+    local healthTextInfo
     if textSettings.Enabled then
         local textWidth = textSettings.Width or 24
         local textSize = math.floor(tonumber(textSettings.Size) or tonumber(settings.TextSize) or 10)
@@ -493,23 +516,40 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
         if isHorizontal then
             textCenter = true
             textPosition = Vector2.new(bgPosition.X + bgSize.X / 2, side == "Top" and bgPosition.Y - textSize - textGap or bgPosition.Y + thickness + textGap)
-        elseif side == "Right" then
-            textPosition = Vector2.new(bgPosition.X + thickness + textGap, bgPosition.Y + bgSize.Y - textSize)
         else
-            textPosition = Vector2.new(bgPosition.X - textWidth - textGap, bgPosition.Y + bgSize.Y - textSize)
+            healthTextInfo = {
+                Value = formatHealthText(health, maxHealth, healthPercent, textSettings),
+                Settings = {
+                    Enabled = true,
+                    Anchor = side,
+                    Text = formatHealthText(health, maxHealth, healthPercent, textSettings),
+                    Color = textSettings.Color or Color3.fromRGB(255, 255, 255),
+                    Size = textSize,
+                    Font = textSettings.Font,
+                    Width = textWidth,
+                    Spacing = textSettings.Spacing,
+                    Padding = textGap,
+                    Order = textSettings.Order or 0,
+                    Outline = textSettings.Outline,
+                },
+            }
         end
 
-        createDraw(espName, objectId, "HealthText", "Text")
-        updateDraw(espName, objectId, "HealthText", {
-            Visible = true,
-            Text = formatHealthText(health, maxHealth, healthPercent, textSettings),
-            Position = textPosition,
-            Color = textSettings.Color or Color3.fromRGB(255, 255, 255),
-            Size = textSize,
-            Font = textSettings.Font,
-            Center = textSettings.Center ~= nil and textSettings.Center or textCenter,
-            Outline = textSettings.Outline ~= false,
-        })
+        if isHorizontal then
+            createDraw(espName, objectId, "HealthText", "Text")
+            updateDraw(espName, objectId, "HealthText", {
+                Visible = true,
+                Text = formatHealthText(health, maxHealth, healthPercent, textSettings),
+                Position = textPosition,
+                Color = textSettings.Color or Color3.fromRGB(255, 255, 255),
+                Size = textSize,
+                Font = textSettings.Font,
+                Center = textSettings.Center ~= nil and textSettings.Center or textCenter,
+                Outline = textSettings.Outline ~= false,
+            })
+        else
+            updateDraw(espName, objectId, "HealthText", { Visible = false })
+        end
 
         if not isHorizontal and settings.ReserveTextSpace ~= false then
             reserve = reserve + textGap + textWidth
@@ -528,6 +568,7 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
         Position = bgPosition,
         Size = bgSize,
         IsHorizontal = isHorizontal,
+        Text = healthTextInfo,
     }
 end
 local function updateHealth(espName, objectId, position, size, humanoid, settings)
@@ -547,9 +588,22 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
     for textName, textSettings in pairs(texts) do
         items[#items + 1] = {
             Name = textName,
+            Element = "Text_" .. textName,
             Settings = textSettings,
             Order = textSettings.Order or 100,
         }
+    end
+
+    if info and info.HealthBar and info.HealthBar.Text then
+        local healthText = info.HealthBar.Text
+        items[#items + 1] = {
+            Name = "HealthText",
+            Element = "HealthText",
+            Settings = healthText.Settings,
+            Order = healthText.Settings.Order or 0,
+        }
+    else
+        updateDraw(espName, objectId, "HealthText", { Visible = false })
     end
 
     table.sort(items, function(a, b)
@@ -586,6 +640,7 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
 
     for _, item in ipairs(items) do
         local textName = item.Name
+        local element = item.Element or ("Text_" .. textName)
         local textSettings = item.Settings
 
         if textSettings.Enabled then
@@ -645,8 +700,8 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 center = false
             end
 
-            createDraw(espName, objectId, "Text_" .. textName, "Text")
-            updateDraw(espName, objectId, "Text_" .. textName, {
+            createDraw(espName, objectId, element, "Text")
+            updateDraw(espName, objectId, element, {
                 Visible = true,
                 Text = value,
                 Position = position,
@@ -657,7 +712,7 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 Outline = textSettings.Outline ~= false,
             })
         else
-            updateDraw(espName, objectId, "Text_" .. textName, { Visible = false })
+            updateDraw(espName, objectId, element, { Visible = false })
         end
     end
 end
