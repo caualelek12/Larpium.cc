@@ -20,7 +20,7 @@ end
 
 local EspHandler = {}
 
-EspHandler.Version = "2026-06-26-box-scaled-text"
+EspHandler.Version = "2026-06-26-scaled-corners"
 EspHandler.Enabled = false
 EspHandler.UpdateRate = 60
 EspHandler.Connections = {}
@@ -64,7 +64,9 @@ EspHandler.Settings = {
             Type = "Corner", -- Square / Corner
             Color = Color3.fromRGB(255, 255, 255),
             Thickness = 4,
-            CornerSize = 12,
+            CornerSize = 12, -- maximum corner length
+            CornerRatio = 0.25,
+            ScaleThickness = true,
             Outline = true,
             OutlineColor = Color3.fromRGB(0, 0, 0),
             OutlineThickness = 1,
@@ -547,11 +549,24 @@ local function updateCornerBox(espName, objectId, position, size, boxSettings)
     local bottomRight = snapVector2(position + size)
     local width = math.max(bottomRight.X - topLeft.X, 1)
     local height = math.max(bottomRight.Y - topLeft.Y, 1)
-    local thickness = math.max(math.floor((tonumber(boxSettings.Thickness) or 1) + 0.5), 1)
+    local minimumDimension = math.min(width, height)
+    local requestedThickness = math.max(math.floor((tonumber(boxSettings.Thickness) or 1) + 0.5), 1)
+    local maximumScaledThickness = math.max(math.floor(minimumDimension / 6), 1)
+    local thickness = boxSettings.ScaleThickness == false
+        and math.min(requestedThickness, minimumDimension)
+        or math.min(requestedThickness, maximumScaledThickness)
     local color = boxSettings.Color or Color3.fromRGB(255, 255, 255)
-    local corner = math.max(
-        thickness,
-        math.min(math.floor((tonumber(boxSettings.CornerSize) or 12) + 0.5), math.floor(width / 2), math.floor(height / 2))
+    local maximumCorner = math.max(math.floor((tonumber(boxSettings.CornerSize) or 12) + 0.5), 1)
+    local cornerRatio = math.clamp(tonumber(boxSettings.CornerRatio) or 0.25, 0.1, 0.5)
+    local horizontalCorner = math.min(
+        maximumCorner,
+        math.max(math.floor(width * cornerRatio + 0.5), thickness),
+        math.max(math.floor(width / 2), 1)
+    )
+    local verticalCorner = math.min(
+        maximumCorner,
+        math.max(math.floor(height * cornerRatio + 0.5), thickness),
+        math.max(math.floor(height / 2), 1)
     )
     local outline = boxSettings.Outline ~= false
     local outlineColor = boxSettings.OutlineColor or Color3.fromRGB(0, 0, 0)
@@ -560,14 +575,14 @@ local function updateCornerBox(espName, objectId, position, size, boxSettings)
     local right, bottom = bottomRight.X, bottomRight.Y
 
     local segments = {
-        { "TL_H", Vector2.new(x, y), Vector2.new(corner, thickness) },
-        { "TL_V", Vector2.new(x, y), Vector2.new(thickness, corner) },
-        { "TR_H", Vector2.new(right - corner, y), Vector2.new(corner, thickness) },
-        { "TR_V", Vector2.new(right - thickness, y), Vector2.new(thickness, corner) },
-        { "BL_H", Vector2.new(x, bottom - thickness), Vector2.new(corner, thickness) },
-        { "BL_V", Vector2.new(x, bottom - corner), Vector2.new(thickness, corner) },
-        { "BR_H", Vector2.new(right - corner, bottom - thickness), Vector2.new(corner, thickness) },
-        { "BR_V", Vector2.new(right - thickness, bottom - corner), Vector2.new(thickness, corner) },
+        { "TL_H", Vector2.new(x, y), Vector2.new(horizontalCorner, thickness) },
+        { "TL_V", Vector2.new(x, y), Vector2.new(thickness, verticalCorner) },
+        { "TR_H", Vector2.new(right - horizontalCorner, y), Vector2.new(horizontalCorner, thickness) },
+        { "TR_V", Vector2.new(right - thickness, y), Vector2.new(thickness, verticalCorner) },
+        { "BL_H", Vector2.new(x, bottom - thickness), Vector2.new(horizontalCorner, thickness) },
+        { "BL_V", Vector2.new(x, bottom - verticalCorner), Vector2.new(thickness, verticalCorner) },
+        { "BR_H", Vector2.new(right - horizontalCorner, bottom - thickness), Vector2.new(horizontalCorner, thickness) },
+        { "BR_V", Vector2.new(right - thickness, bottom - verticalCorner), Vector2.new(thickness, verticalCorner) },
     }
 
     cleanupLegacyCornerOutlines(espName, objectId, { "TL_H", "TL_V", "TR_H", "TR_V", "BL_H", "BL_V", "BR_H", "BR_V" })
