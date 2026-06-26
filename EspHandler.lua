@@ -20,7 +20,7 @@ end
 
 local EspHandler = {}
 
-EspHandler.Version = "2026-06-26-complete-model-bounds"
+EspHandler.Version = "2026-06-26-rounded-health-bars"
 EspHandler.Enabled = false
 EspHandler.UpdateRate = 60
 EspHandler.Connections = {}
@@ -95,6 +95,8 @@ EspHandler.Settings = {
             BackgroundColor = Color3.fromRGB(30, 30, 30),
             Gap = 1,
             TextGap = 1,
+            Rounded = true,
+            CornerRadius = nil, -- nil = half the bar width
             ReserveTextSpace = false,
             Length = nil, -- nil = auto scale to box height/width
             Text = {
@@ -661,12 +663,101 @@ local function formatHealthText(health, maxHealth, healthPercent, textSettings)
     return tostring(math.floor(healthPercent * 100)) .. "%"
 end
 
+local function hideHealthDrawings(espName, objectId)
+    local groupRefs = EspHandler.DrawingRefs[espName]
+    local objectRefs = groupRefs and groupRefs[getObjectId(objectId)]
+    if not objectRefs then return end
+
+    for _, element in ipairs({
+        "HealthBG",
+        "HealthBGStartCap",
+        "HealthBGEndCap",
+        "Health",
+        "HealthStartCap",
+        "HealthEndCap",
+        "HealthText",
+    }) do
+        local drawing = objectRefs[element]
+        if drawing then
+            drawing.Visible = false
+        end
+    end
+end
+
+local function updateHealthShape(espName, objectId, prefix, position, size, color, isHorizontal, rounded, cornerRadius)
+    local body = prefix
+    local startCap = prefix .. "StartCap"
+    local endCap = prefix .. "EndCap"
+    local length = isHorizontal and size.X or size.Y
+    local width = isHorizontal and size.Y or size.X
+
+    if length <= 0 or width <= 0 then
+        updateDraw(espName, objectId, body, { Visible = false })
+        updateDraw(espName, objectId, startCap, { Visible = false })
+        updateDraw(espName, objectId, endCap, { Visible = false })
+        return
+    end
+
+    if not rounded then
+        updateDraw(espName, objectId, body, {
+            Visible = true,
+            Position = position,
+            Size = size,
+            Color = color,
+            Filled = true,
+        })
+        updateDraw(espName, objectId, startCap, { Visible = false })
+        updateDraw(espName, objectId, endCap, { Visible = false })
+        return
+    end
+
+    local radius = math.min(width / 2, length / 2, tonumber(cornerRadius) or math.huge)
+    local bodyPosition
+    local bodySize
+    local startPosition
+    local endPosition
+
+    if isHorizontal then
+        bodyPosition = position + Vector2.new(radius, 0)
+        bodySize = Vector2.new(math.max(length - radius * 2, 0), width)
+        startPosition = position + Vector2.new(radius, width / 2)
+        endPosition = position + Vector2.new(length - radius, width / 2)
+    else
+        bodyPosition = position + Vector2.new(0, radius)
+        bodySize = Vector2.new(width, math.max(length - radius * 2, 0))
+        startPosition = position + Vector2.new(width / 2, radius)
+        endPosition = position + Vector2.new(width / 2, length - radius)
+    end
+
+    updateDraw(espName, objectId, body, {
+        Visible = bodySize.X > 0 and bodySize.Y > 0,
+        Position = bodyPosition,
+        Size = bodySize,
+        Color = color,
+        Filled = true,
+    })
+
+    updateDraw(espName, objectId, startCap, {
+        Visible = true,
+        Position = startPosition,
+        Radius = radius,
+        Color = color,
+        Filled = true,
+    })
+
+    updateDraw(espName, objectId, endCap, {
+        Visible = true,
+        Position = endPosition,
+        Radius = radius,
+        Color = color,
+        Filled = true,
+    })
+end
+
 local function updateHealthValue(espName, objectId, position, size, health, maxHealth, settings, textScaling)
     settings = settings or {}
     if settings.Enabled == false or not health or not maxHealth or maxHealth <= 0 then
-        updateDraw(espName, objectId, "HealthBG", { Visible = false })
-        updateDraw(espName, objectId, "Health", { Visible = false })
-        updateDraw(espName, objectId, "HealthText", { Visible = false })
+        hideHealthDrawings(espName, objectId)
         return 0, nil
     end
 
@@ -704,23 +795,21 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
     end
 
     createDraw(espName, objectId, "HealthBG", "Square")
+    createDraw(espName, objectId, "HealthBGStartCap", "Circle")
+    createDraw(espName, objectId, "HealthBGEndCap", "Circle")
     createDraw(espName, objectId, "Health", "Square")
+    createDraw(espName, objectId, "HealthStartCap", "Circle")
+    createDraw(espName, objectId, "HealthEndCap", "Circle")
 
-    updateDraw(espName, objectId, "HealthBG", {
-        Visible = true,
-        Position = bgPosition,
-        Size = bgSize,
-        Color = settings.BackgroundColor or Color3.fromRGB(30, 30, 30),
-        Filled = true,
-    })
+    local rounded = settings.Rounded ~= false
+    local cornerRadius = settings.CornerRadius
+    local backgroundColor = settings.BackgroundColor or Color3.fromRGB(30, 30, 30)
+    local fillColor = healthPercent > 0.35
+        and (settings.Color or Color3.fromRGB(255, 50, 50))
+        or (settings.LowColor or Color3.fromRGB(255, 60, 60))
 
-    updateDraw(espName, objectId, "Health", {
-        Visible = true,
-        Position = fillPosition,
-        Size = fillSize,
-        Color = healthPercent > 0.35 and (settings.Color or Color3.fromRGB(255, 50, 50)) or (settings.LowColor or Color3.fromRGB(255, 60, 60)),
-        Filled = true,
-    })
+    updateHealthShape(espName, objectId, "HealthBG", bgPosition, bgSize, backgroundColor, isHorizontal, rounded, cornerRadius)
+    updateHealthShape(espName, objectId, "Health", fillPosition, fillSize, fillColor, isHorizontal, rounded, cornerRadius)
 
     local reserve = isHorizontal and 0 or (thickness + gap)
     local reserveSide = isHorizontal and nil or side
@@ -798,9 +887,7 @@ local function updateHealthValue(espName, objectId, position, size, health, maxH
 end
 local function updateHealth(espName, objectId, position, size, humanoid, settings, textScaling)
     if not humanoid then
-        updateDraw(espName, objectId, "HealthBG", { Visible = false })
-        updateDraw(espName, objectId, "Health", { Visible = false })
-        updateDraw(espName, objectId, "HealthText", { Visible = false })
+        hideHealthDrawings(espName, objectId)
         return 0, nil
     end
 
