@@ -280,8 +280,15 @@ local function anchorPosition(position, size, anchor, offset)
     return CalculationHandler.AnchorPosition(position, size, anchor, offset)
 end
 
-local function getBox(character)
+local function getBox(character, settings)
+    settings = settings or {}
+    local boxSettings = settings.BoxCalculation or settings.BoxSize or {}
+
     return CalculationHandler.GetModelScreenBox(character, Camera, {
+        Method = boxSettings.Method or settings.BoxMethod or "Parts",
+        BodyOnly = boxSettings.BodyOnly,
+        IgnoreTools = boxSettings.IgnoreTools,
+        IgnoreAccessories = boxSettings.IgnoreAccessories,
         ClampPadding = 0,
         MaxViewportScale = 0.9,
         MinSize = 2,
@@ -738,7 +745,7 @@ local function updatePlayerEsp(player, data)
         return
     end
 
-    local position, size, visible = getBox(character)
+    local position, size, visible = getBox(character, settings)
     if not visible then
         hideObject(espName, player.UserId)
         return
@@ -1171,8 +1178,8 @@ end
 function EspHandler.UpdateHealth(espName, objectId, position, size, health, maxHealth, healthSettings)
     return EspHandler.UpdateHealthBar(espName, objectId, position, size, health, maxHealth, healthSettings)
 end
-function EspHandler.GetBox(character)
-    return getBox(character)
+function EspHandler.GetBox(character, settings)
+    return getBox(character, settings)
 end
 
 function EspHandler.GetAnchorPosition(position, size, anchor, offset)
