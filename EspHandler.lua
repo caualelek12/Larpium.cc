@@ -522,6 +522,15 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
         Right = 0,
         Center = 0,
     }
+    local activeCounts = {}
+
+    for _, item in ipairs(items) do
+        local textSettings = item.Settings
+        if textSettings.Enabled then
+            local anchor = textSettings.Anchor or "Top"
+            activeCounts[anchor] = (activeCounts[anchor] or 0) + 1
+        end
+    end
 
     for _, item in ipairs(items) do
         local textName = item.Name
@@ -532,10 +541,11 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
             if type(value) == "function" then
                 value = value(player, character, info)
             end
+            value = tostring(value or "")
 
             local anchor = textSettings.Anchor or "Top"
-            local textSize = textSettings.Size or 10
-            local spacing = textSettings.Spacing or textSize + 2
+            local textSize = math.floor(textSettings.Size or 10)
+            local spacing = textSettings.Spacing or math.max(textSize + 2, 10)
             local offset = textSettings.Offset or Vector2.zero
             local slot = used[anchor] or 0
             used[anchor] = slot + 1
@@ -552,7 +562,7 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 offset = offset + Vector2.new(0, slot * spacing)
             end
 
-            local sidePadding = textSettings.Padding or 1
+            local sidePadding = math.max(textSettings.Padding or 2, 1)
             local sideWidth = textSettings.Width or estimateTextWidth(value, textSize)
             local position
             local center
@@ -564,16 +574,19 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
                 local healthSize = healthBar.Size
                 local healthSide = healthBar.Side
                 local textSide = anchor
-                local baseY = healthPosition.Y + healthSize.Y / 2
+                local activeCount = math.max(activeCounts[anchor] or 1, 1)
+                local baseY = healthPosition.Y + math.max(0, (healthSize.Y - ((activeCount - 1) * spacing)) / 2)
 
                 if textSide ~= "Left" and textSide ~= "Right" then
                     textSide = healthSide
                 end
 
                 if textSide == "Left" then
-                    position = Vector2.new(healthPosition.X - sideWidth - sidePadding, baseY) + offset
+                    local maxRight = healthPosition.X - sidePadding
+                    position = Vector2.new(maxRight - sideWidth, baseY) + offset
                 else
-                    position = Vector2.new(healthPosition.X + healthSize.X + sidePadding, baseY) + offset
+                    local minLeft = healthPosition.X + healthSize.X + sidePadding
+                    position = Vector2.new(minLeft, baseY) + offset
                 end
 
                 center = false
@@ -594,7 +607,7 @@ local function updateTexts(espName, objectId, player, character, boxPosition, bo
             createDraw(espName, objectId, "Text_" .. textName, "Text")
             updateDraw(espName, objectId, "Text_" .. textName, {
                 Visible = true,
-                Text = tostring(value or ""),
+                Text = value,
                 Position = position,
                 Color = textSettings.Color or Color3.fromRGB(255, 255, 255),
                 Size = textSize,

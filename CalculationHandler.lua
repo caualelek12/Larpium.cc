@@ -37,7 +37,7 @@ function CalculationHandler.AnchorPosition(position, size, anchor, offset)
 end
 
 function CalculationHandler.EstimateTextWidth(text, size)
-    return math.max(8, math.floor(#tostring(text or "") * (size or 10) * 0.55))
+    return math.max(8, math.ceil(#tostring(text or "") * (size or 10) * 0.68))
 end
 
 function CalculationHandler.GetModelWorldBox(model)
