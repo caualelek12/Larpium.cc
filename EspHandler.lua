@@ -32,7 +32,7 @@ EspHandler.Settings = {
             CornerSize = 12,
             Outline = true,
             OutlineColor = Color3.fromRGB(0, 0, 0),
-            OutlineThickness = 2,
+            OutlineThickness = 1,
         },
 
         HeadCircle = {
@@ -287,13 +287,28 @@ local function getBox(character)
         MinSize = 2,
     })
 end
+
+local function hideCornerBoxOutlines(espName, objectId, part)
+    updateDraw(espName, objectId, "BoxOutline_" .. part, { Visible = false })
+
+    for index = 1, 4 do
+        updateDraw(espName, objectId, "BoxOutline_" .. part .. "_" .. index, { Visible = false })
+    end
+end
+
 local function updateCornerBox(espName, objectId, position, size, boxSettings)
     local thickness = boxSettings.Thickness or 1
     local color = boxSettings.Color or Color3.fromRGB(255, 255, 255)
     local corner = math.min(boxSettings.CornerSize or 12, size.X / 2, size.Y / 2)
     local outline = boxSettings.Outline ~= false
     local outlineColor = boxSettings.OutlineColor or Color3.fromRGB(0, 0, 0)
-    local outlineThickness = thickness + (boxSettings.OutlineThickness or 2)
+    local outlineOffset = boxSettings.OutlineThickness or 1
+    local outlineOffsets = {
+        Vector2.new(-outlineOffset, 0),
+        Vector2.new(outlineOffset, 0),
+        Vector2.new(0, -outlineOffset),
+        Vector2.new(0, outlineOffset),
+    }
 
     local lines = {
         { "TL_H", position, Vector2.new(position.X + corner, position.Y) },
@@ -307,14 +322,19 @@ local function updateCornerBox(espName, objectId, position, size, boxSettings)
     }
 
     for _, line in ipairs(lines) do
-        createDraw(espName, objectId, "BoxOutline_" .. line[1], "Line")
-        updateDraw(espName, objectId, "BoxOutline_" .. line[1], {
-            Visible = outline,
-            From = line[2],
-            To = line[3],
-            Color = outlineColor,
-            Thickness = outlineThickness,
-        })
+        updateDraw(espName, objectId, "BoxOutline_" .. line[1], { Visible = false })
+
+        for index, offset in ipairs(outlineOffsets) do
+            local outlineName = "BoxOutline_" .. line[1] .. "_" .. index
+            createDraw(espName, objectId, outlineName, "Line")
+            updateDraw(espName, objectId, outlineName, {
+                Visible = outline,
+                From = line[2] + offset,
+                To = line[3] + offset,
+                Color = outlineColor,
+                Thickness = thickness,
+            })
+        end
 
         createDraw(espName, objectId, "Box_" .. line[1], "Line")
         updateDraw(espName, objectId, "Box_" .. line[1], {
@@ -357,7 +377,7 @@ local function updateSquareBox(espName, objectId, position, size, boxSettings)
 
     for _, part in ipairs({ "TL_H", "TL_V", "TR_H", "TR_V", "BL_H", "BL_V", "BR_H", "BR_V" }) do
         updateDraw(espName, objectId, "Box_" .. part, { Visible = false })
-        updateDraw(espName, objectId, "BoxOutline_" .. part, { Visible = false })
+        hideCornerBoxOutlines(espName, objectId, part)
     end
 end
 
@@ -756,7 +776,7 @@ local function updatePlayerEsp(player, data)
         updateDraw(espName, objectId, "BoxOutline", { Visible = false })
         for _, part in ipairs({ "TL_H", "TL_V", "TR_H", "TR_V", "BL_H", "BL_V", "BR_H", "BR_V" }) do
             updateDraw(espName, objectId, "Box_" .. part, { Visible = false })
-            updateDraw(espName, objectId, "BoxOutline_" .. part, { Visible = false })
+            hideCornerBoxOutlines(espName, objectId, part)
         end
     end
 
@@ -1094,7 +1114,7 @@ function EspHandler.UpdateBox(espName, objectId, position, size, boxSettings)
         updateDraw(espName, objectId, "BoxOutline", { Visible = false })
         for _, part in ipairs({ "TL_H", "TL_V", "TR_H", "TR_V", "BL_H", "BL_V", "BR_H", "BR_V" }) do
             updateDraw(espName, objectId, "Box_" .. part, { Visible = false })
-            updateDraw(espName, objectId, "BoxOutline_" .. part, { Visible = false })
+            hideCornerBoxOutlines(espName, objectId, part)
         end
         return
     end
