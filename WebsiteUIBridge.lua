@@ -2,7 +2,7 @@ local HttpService = game:GetService("HttpService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-14-http"
+WebsiteUIBridge.Version = "2026-07-14-runtime-ui"
 
 local function trimSlash(value)
     return tostring(value or ""):gsub("/+$", "")
@@ -17,12 +17,15 @@ local function jsonRequest(url, method, body, token)
         headers.Authorization = "Bearer " .. token
     end
 
-    local response = request({
+    local requestOk, response = pcall(request, {
         Url = url,
         Method = method or "GET",
         Headers = headers,
         Body = body and HttpService:JSONEncode(body) or nil,
     })
+    if not requestOk then
+        return nil, tostring(response), 0
+    end
     local decoded = {}
     if response.Body and response.Body ~= "" then
         local ok, result = pcall(HttpService.JSONDecode, HttpService, response.Body)
@@ -72,9 +75,12 @@ function WebsiteUIBridge.new(options)
     self.Project = nil
     self.Revision = 0
     self.Running = false
+    self.Connected = false
     self.OnError = options.OnError
     self.OnSchema = options.OnSchema
+    self.OnConnected = options.OnConnected
     self.Changed = Instance.new("BindableEvent")
+    self.ConnectionChanged = Instance.new("BindableEvent")
 
     local saved = loadSaved(self.StoragePath)
     self.Token = options.Token or saved.token
@@ -120,6 +126,54 @@ function WebsiteUIBridge:Bind(flag, callback, fireImmediately)
     return callback
 end
 
+function WebsiteUIBridge:BindValue(flag, callback, fireImmediately)
+    return self:Bind(flag, callback, fireImmediately)
+end
+
+function WebsiteUIBridge:BindToggle(flag, enableCallback, disableCallback, fireImmediately)
+    assert(type(enableCallback) == "function", "BindToggle enable callback must be a function")
+    assert(type(disableCallback) == "function", "BindToggle disable callback must be a function")
+    return self:Bind(flag, function(enabled, previous)
+        if enabled == true then
+            enableCallback(previous)
+        else
+            disableCallback(previous)
+        end
+    end, fireImmediately)
+end
+
+function WebsiteUIBridge:BindFeature(flag, feature, fireImmediately)
+    assert(type(feature) == "table", "BindFeature feature must be a table")
+    local setEnabled = feature.SetEnabled
+    if type(setEnabled) == "function" then
+        return self:Bind(flag, function(enabled)
+            setEnabled(enabled == true)
+        end, fireImmediately)
+    end
+
+    assert(type(feature.Enable) == "function", "BindFeature feature needs Enable or SetEnabled")
+    assert(type(feature.Disable) == "function", "BindFeature feature needs Disable or SetEnabled")
+    return self:BindToggle(flag, function()
+        feature:Enable()
+    end, function()
+        feature:Disable()
+    end, fireImmediately)
+end
+
+function WebsiteUIBridge:BindButton(flag, callback)
+    assert(type(callback) == "function", "BindButton callback must be a function")
+    return self:Bind(flag, function(sequence, previous)
+        callback(sequence, previous)
+    end, false)
+end
+
+function WebsiteUIBridge:OnConnection(callback, fireImmediately)
+    assert(type(callback) == "function", "OnConnection callback must be a function")
+    local connection = self.ConnectionChanged.Event:Connect(callback)
+    if fireImmediately then task.spawn(callback, self.Connected) end
+    return connection
+end
+
 function WebsiteUIBridge:Unbind(flag, callback)
     local callbacks = self.Bindings[flag]
     if not callbacks then return end
@@ -145,10 +199,24 @@ function WebsiteUIBridge:_dispatch(flag, value, previous)
     end
 end
 
+function WebsiteUIBridge:_setConnected(connected)
+    connected = connected == true
+    if self.Connected == connected then return end
+    self.Connected = connected
+    self.ConnectionChanged:Fire(connected)
+    if connected and type(self.OnConnected) == "function" then
+        task.spawn(self.OnConnected, self.Project)
+    end
+end
+
 function WebsiteUIBridge:PollOnce()
-    if not self.Token or self.Token == "" then return false, "Pair the bridge first." end
+    if not self.Token or self.Token == "" then
+        self:_setConnected(false)
+        return false, "Pair the bridge first."
+    end
     local data, err, statusCode = jsonRequest(self.BaseUrl .. "/api/ui/device/config", "GET", nil, self.Token)
     if not data then
+        self:_setConnected(false)
         if statusCode == 401 or statusCode == 403 then
             self.Token = nil
             self:_save()
@@ -160,6 +228,7 @@ function WebsiteUIBridge:PollOnce()
     local projectChanged = not self.Project or self.Revision ~= tonumber(data.project and data.project.revision)
     self.Project = data.project
     self.Revision = tonumber(data.project and data.project.revision) or self.Revision
+    self:_setConnected(true)
     if projectChanged and type(self.OnSchema) == "function" then
         task.spawn(self.OnSchema, self.Project)
     end
@@ -196,6 +265,7 @@ end
 
 function WebsiteUIBridge:Stop()
     self.Running = false
+    self:_setConnected(false)
     return self
 end
 
@@ -204,6 +274,7 @@ function WebsiteUIBridge:ForgetDevice()
     self.Token = nil
     self.Values = {}
     self.Project = nil
+    self:_setConnected(false)
     self:_save()
 end
 
@@ -211,6 +282,7 @@ function WebsiteUIBridge:Destroy()
     self:Stop()
     self.Bindings = {}
     self.Changed:Destroy()
+    self.ConnectionChanged:Destroy()
 end
 
 return WebsiteUIBridge

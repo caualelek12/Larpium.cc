@@ -47,7 +47,7 @@ EspHandler.Create({ Preset = "Standard" })
 
 ## Website controls
 
-Create the groups and controls in `Admin -> Website UI Builder`. Eligible users open `Cheats -> Open Controls`, click `Pair Game`, and use the one-time code in the bridge.
+Staff creates groups and controls under `Web UI`. Buyer-access users open the same page, click `Pair Game`, and use the one-time code in the bridge. The editor is never returned to non-staff accounts.
 
 ```lua
 local WebsiteUIBridge = loadstring(game:HttpGet(
@@ -60,21 +60,26 @@ local bridge = WebsiteUIBridge.new({
     PollInterval = 1,
 })
 
-bridge:Bind("esp_enabled", function(enabled)
-    EspHandler.SetEnabled(enabled)
-end)
+-- Automatically calls EspHandler.SetEnabled(true/false).
+bridge:BindFeature("esp_enabled", EspHandler, true)
 
-bridge:Bind("esp_distance", function(distance)
+bridge:BindValue("esp_distance", function(distance)
     EspHandler.Configure({ MaxDistance = distance })
+end, true)
+
+bridge:BindButton("refresh_players", function()
+    PlayersHandler.Update2DPositions()
 end)
 
-bridge:Bind("refresh_players", function(sequence, previous)
-    if previous ~= nil and sequence ~= previous then
-        PlayersHandler.Update2DPositions()
-    end
-end)
+bridge:BindToggle("aim_enabled", enableAim, disableAim, true)
+
+bridge:OnConnection(function(connected)
+    print("Web UI connected:", connected)
+end, true)
 
 bridge:Start()
 ```
+
+`BindFeature` accepts a module with `SetEnabled(boolean)` or a controller with `Enable()` and `Disable()`. `BindValue` handles sliders and dropdowns, `BindToggle` handles toggles and checkboxes, and `BindButton` runs once per website click.
 
 The pairing code is single-use and expires after ten minutes. The saved device token is scoped to one account and one UI project; rank or access removal is checked again on every poll. HTTP deployments are supported, but device tokens travel without transport encryption until the site is moved behind HTTPS.
