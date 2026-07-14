@@ -20,7 +20,7 @@ end
 
 local EspHandler = {}
 
-EspHandler.Version = "2026-06-26-respawn-safe"
+EspHandler.Version = "2026-07-14-friendly-api"
 EspHandler.Enabled = false
 EspHandler.UpdateRate = 60
 EspHandler.Connections = {}
@@ -195,6 +195,111 @@ local function mergeTable(base, changes)
     end
 
     return base
+end
+
+local FRIENDLY_FEATURES = {
+    Box = { "Box", "Enabled" },
+    Health = { "Health", "Enabled" },
+    HealthText = { "Health", "Text", "Enabled" },
+    HeadCircle = { "HeadCircle", "Enabled" },
+    Skeleton = { "Skeleton", "Enabled" },
+    Names = { "Texts", "Name", "Enabled" },
+    Name = { "Texts", "Name", "Enabled" },
+    Distance = { "Texts", "Distance", "Enabled" },
+    Weapon = { "Texts", "Weapon", "Enabled" },
+    State = { "Texts", "State", "Enabled" },
+}
+
+EspHandler.Presets = {
+    Minimal = {
+        Box = true,
+        Health = false,
+        Names = true,
+        Distance = false,
+        Weapon = false,
+        State = false,
+        Skeleton = false,
+        HeadCircle = false,
+    },
+    Standard = {
+        Box = true,
+        Health = true,
+        HealthText = true,
+        Names = true,
+        Distance = true,
+        Weapon = false,
+        State = false,
+        Skeleton = false,
+        HeadCircle = false,
+    },
+    Detailed = {
+        Box = true,
+        Health = true,
+        HealthText = true,
+        Names = true,
+        Distance = true,
+        Weapon = true,
+        State = true,
+        Skeleton = true,
+        HeadCircle = false,
+    },
+}
+
+local function setNestedValue(target, path, value)
+    for index = 1, #path - 1 do
+        local key = path[index]
+        target[key] = target[key] or {}
+        target = target[key]
+    end
+    target[path[#path]] = value
+end
+
+local function copyTable(source)
+    local result = {}
+    for key, value in pairs(source or {}) do
+        result[key] = type(value) == "table" and copyTable(value) or value
+    end
+    return result
+end
+
+local function friendlySettings(options)
+    options = options or {}
+    local settings = {}
+
+    for key, value in pairs(options) do
+        local path = FRIENDLY_FEATURES[key]
+        if path then
+            if type(value) == "table" then
+                local sectionPath = {}
+                for index = 1, #path - 1 do
+                    sectionPath[index] = path[index]
+                end
+                setNestedValue(settings, sectionPath, copyTable(value))
+            else
+                setNestedValue(settings, path, value == true or (value ~= false and value ~= nil))
+            end
+        elseif key == "BoxType" then
+            setNestedValue(settings, { "Box", "Type" }, value)
+        elseif key == "Color" then
+            setNestedValue(settings, { "Box", "Color" }, value)
+            setNestedValue(settings, { "Skeleton", "Color" }, value)
+            setNestedValue(settings, { "HeadCircle", "Color" }, value)
+        elseif key == "TextColor" then
+            for _, textName in ipairs({ "Name", "Distance", "Weapon", "State" }) do
+                setNestedValue(settings, { "Texts", textName, "Color" }, value)
+            end
+        elseif key == "TextSize" then
+            for _, textName in ipairs({ "Name", "Distance", "Weapon", "State" }) do
+                setNestedValue(settings, { "Texts", textName, "Size" }, value)
+            end
+        elseif key == "Outline" then
+            setNestedValue(settings, { "Box", "Outline" }, value ~= false)
+        elseif key ~= "Enabled" and key ~= "Preset" and key ~= "Group" then
+            settings[key] = value
+        end
+    end
+
+    return settings
 end
 
 local function getObjectId(object)
@@ -1312,6 +1417,120 @@ local function updateCustomEsp(espName, settings)
         end
     end
 end
+
+local SimpleController = {}
+SimpleController.__index = SimpleController
+
+function EspHandler.Configure(options, espName)
+    if type(options) == "string" then
+        espName, options = options, espName
+    end
+
+    options = options or {}
+    espName = espName or options.Group or DEFAULT_ESP
+
+    local combined = {}
+    local preset = options.Preset
+    if type(preset) == "string" and EspHandler.Presets[preset] then
+        mergeTable(combined, copyTable(EspHandler.Presets[preset]))
+    elseif type(preset) == "table" then
+        mergeTable(combined, copyTable(preset))
+    end
+    mergeTable(combined, copyTable(options))
+
+    local enabled = combined.Enabled
+    local settings = friendlySettings(combined)
+    EspHandler.SetSettings(espName, settings)
+
+    if enabled == true then
+        EspHandler.StartGroup(espName)
+    elseif enabled == false then
+        EspHandler.StopGroup(espName, false)
+    end
+
+    return EspHandler.Settings[espName]
+end
+
+function EspHandler.UsePreset(name, overrides, espName)
+    overrides = copyTable(overrides or {})
+    overrides.Preset = name
+    return EspHandler.Configure(overrides, espName)
+end
+
+function EspHandler.SetFeature(feature, enabled, espName)
+    local option = {}
+    option[feature] = enabled
+    return EspHandler.Configure(option, espName)
+end
+
+function EspHandler.Toggle(espName, settings)
+    espName = espName or DEFAULT_ESP
+    if EspHandler.Running[espName] then
+        EspHandler.StopGroup(espName, false)
+        return false
+    end
+
+    if settings then
+        EspHandler.Configure(settings, espName)
+    end
+    EspHandler.StartGroup(espName)
+    return true
+end
+
+function SimpleController:Set(options)
+    EspHandler.Configure(options, self.Group)
+    return self
+end
+
+function SimpleController:SetFeature(feature, enabled)
+    EspHandler.SetFeature(feature, enabled, self.Group)
+    return self
+end
+
+function SimpleController:Enable(options)
+    if options then EspHandler.Configure(options, self.Group) end
+    EspHandler.StartGroup(self.Group)
+    return self
+end
+
+function SimpleController:Disable(removeDrawings)
+    EspHandler.StopGroup(self.Group, removeDrawings == true)
+    return self
+end
+
+function SimpleController:Toggle()
+    return EspHandler.Toggle(self.Group)
+end
+
+function SimpleController:GetSettings()
+    return EspHandler.Settings[self.Group]
+end
+
+function SimpleController:AddObject(object, objectId)
+    return EspHandler.AddObject(self.Group, object, objectId)
+end
+
+function SimpleController:RemoveObject(objectId)
+    return EspHandler.RemoveObjectFromList(self.Group, objectId)
+end
+
+function SimpleController:Destroy()
+    EspHandler.StopGroup(self.Group, true)
+end
+
+function EspHandler.Create(options)
+    options = options or {}
+    local group = options.Group or DEFAULT_ESP
+    local controller = setmetatable({ Group = group }, SimpleController)
+    local shouldEnable = options.Enabled ~= false
+    options = copyTable(options)
+    options.Enabled = shouldEnable
+    EspHandler.Configure(options, group)
+    return controller
+end
+
+EspHandler.Simple = EspHandler.Create
+
 function EspHandler.CreateEsp(espName, settings)
     espName = getGroup(espName)
     settings = settings or {}
