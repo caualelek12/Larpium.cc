@@ -55,7 +55,7 @@ local WebsiteUIBridge = loadstring(game:HttpGet(
 ))()
 
 local bridge = WebsiteUIBridge.new({
-    BaseUrl = "https://your-domain.example",
+    BaseUrl = "http://your-domain.example:45916",
     PairCode = "LRP-UI-XXXXXXXX",
     PollInterval = 1,
 })
@@ -77,4 +77,4 @@ end)
 bridge:Start()
 ```
 
-The pairing code is single-use and expires after ten minutes. The saved device token is scoped to one account and one UI project; rank or access removal is checked again on every poll.
+The pairing code is single-use and expires after ten minutes. The saved device token is scoped to one account and one UI project; rank or access removal is checked again on every poll. HTTP deployments are supported, but device tokens travel without transport encryption until the site is moved behind HTTPS.

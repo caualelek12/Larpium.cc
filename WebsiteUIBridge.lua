@@ -2,7 +2,7 @@ local HttpService = game:GetService("HttpService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-14"
+WebsiteUIBridge.Version = "2026-07-14-http"
 
 local function trimSlash(value)
     return tostring(value or ""):gsub("/+$", "")
@@ -60,9 +60,10 @@ function WebsiteUIBridge.new(options)
     local self = setmetatable({}, WebsiteUIBridge)
     self.BaseUrl = trimSlash(options.BaseUrl)
     assert(self.BaseUrl:match("^https?://"), "WebsiteUIBridge BaseUrl must start with http:// or https://")
-    local localHttp = self.BaseUrl:match("^http://localhost[:/]") or self.BaseUrl:match("^http://127%.0%.0%.1[:/]")
-    assert(not self.BaseUrl:match("^http://") or localHttp or options.AllowInsecure == true,
-        "WebsiteUIBridge requires HTTPS. Set AllowInsecure = true only for temporary HTTP testing.")
+    self.InsecureTransport = self.BaseUrl:match("^http://") ~= nil
+    if self.InsecureTransport and options.WarnInsecure ~= false then
+        warn("WebsiteUIBridge is using HTTP; device tokens are not encrypted in transit.")
+    end
 
     self.PollInterval = math.max(tonumber(options.PollInterval) or 1, 0.25)
     self.StoragePath = options.StoragePath or "Larpium/website-ui.json"
