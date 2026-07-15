@@ -55,7 +55,7 @@ local WebsiteUIBridge = loadstring(game:HttpGet(
 ))()
 
 local bridge = WebsiteUIBridge.new({
-    BaseUrl = "https://your-domain.example",
+    BaseUrl = "https://larpium.dedyn.io:45916",
     PairCode = "LRP-UI-XXXXXXXX",
     PollInterval = 1,
 })

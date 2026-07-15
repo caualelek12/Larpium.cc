@@ -3,6 +3,7 @@ local HttpService = game:GetService("HttpService")
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
 WebsiteUIBridge.Version = "2026-07-15-esp-model-v2"
+WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
     return tostring(value or ""):gsub("/+$", "")
@@ -61,7 +62,7 @@ end
 function WebsiteUIBridge.new(options)
     options = options or {}
     local self = setmetatable({}, WebsiteUIBridge)
-    self.BaseUrl = trimSlash(options.BaseUrl)
+    self.BaseUrl = trimSlash(options.BaseUrl or WebsiteUIBridge.DefaultBaseUrl)
     assert(self.BaseUrl:match("^https?://"), "WebsiteUIBridge BaseUrl must start with http:// or https://")
     self.InsecureTransport = self.BaseUrl:match("^http://") ~= nil
     if self.InsecureTransport and options.WarnInsecure ~= false then

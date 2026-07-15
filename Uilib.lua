@@ -3957,7 +3957,7 @@ local Library do
                     BackgroundColor3 = FromRGB(255, 255, 255),
                     Size = UDim2New(1, 8, 1, 8),
                     AnchorPoint = Vector2New(0.5, 0.5),
-                    Image = "http://www.roblox.com/asset/?id=18245826428",
+                    Image = "https://www.roblox.com/asset/?id=18245826428",
                     BackgroundTransparency = 1,
                     Position = UDim2New(0.5, 0, 0.5, 0),
                     ZIndex = 2,

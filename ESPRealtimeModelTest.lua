@@ -1,5 +1,5 @@
 -- Replace these two values, then execute this file after your character has spawned.
-local BASE_URL = "https://your-domain.example"
+local BASE_URL = "https://larpium.dedyn.io:45916"
 local PAIR_CODE = "LRP-UI-XXXXXXXX"
 
 local WebsiteUIBridge = loadstring(game:HttpGet(
