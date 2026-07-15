@@ -2,7 +2,7 @@ local HttpService = game:GetService("HttpService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-15-accessory-transform-v5"
+WebsiteUIBridge.Version = "2026-07-15-place-assets-v6"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -321,7 +321,7 @@ function WebsiteUIBridge:GetModelAssetIds(snapshot)
     return ids
 end
 
-function WebsiteUIBridge:CacheAssets(assetIds)
+function WebsiteUIBridge:CacheAssets(assetIds, placeId)
     if not self.Token or self.Token == "" then return false, "Pair the bridge first." end
     local unique, seen = {}, {}
     for _, value in ipairs(type(assetIds) == "table" and assetIds or {}) do
@@ -332,7 +332,10 @@ function WebsiteUIBridge:CacheAssets(assetIds)
         end
     end
     if #unique == 0 then return true, { requested = 0, cached = {}, failed = {} } end
-    local data, err = jsonRequest(self.BaseUrl .. "/api/ui/device/assets/cache", "POST", { assetIds = unique }, self.Token)
+    local data, err = jsonRequest(self.BaseUrl .. "/api/ui/device/assets/cache", "POST", {
+        assetIds = unique,
+        placeId = tostring(placeId or game.PlaceId or ""),
+    }, self.Token)
     if not data then return false, err end
     return true, data
 end
@@ -351,7 +354,7 @@ function WebsiteUIBridge:PublishModel(model, options)
     local data, err = jsonRequest(self.BaseUrl .. "/api/ui/device/model", "POST", { snapshot = snapshot }, self.Token)
     if not data then return false, err end
     if options and options.CacheAssets == true then
-        local cacheOk, cacheResult = self:CacheAssets(self:GetModelAssetIds(snapshot))
+        local cacheOk, cacheResult = self:CacheAssets(self:GetModelAssetIds(snapshot), game.PlaceId)
         data.assetCache = cacheOk and cacheResult or { requested = 0, cached = {}, failed = {}, error = cacheResult }
     end
     return true, data
