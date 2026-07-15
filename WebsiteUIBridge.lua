@@ -2,7 +2,7 @@ local HttpService = game:GetService("HttpService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-15-place-assets-v6"
+WebsiteUIBridge.Version = "2026-07-15-body-skeleton-v7"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -199,6 +199,12 @@ local function assetIdFromReference(value)
         or text:match("[?&][Ii][Dd]=(%d+)")
 end
 
+local function isSkeletonBodyPart(part, rootModel)
+    if not part:IsA("BasePart") then return false end
+    if part:FindFirstAncestorOfClass("Accessory") or part:FindFirstAncestorOfClass("Tool") then return false end
+    return part:FindFirstAncestorOfClass("Model") == rootModel
+end
+
 function WebsiteUIBridge:CreateModelSnapshot(model, options)
     options = options or {}
     assert(typeof(model) == "Instance" and model:IsA("Model"), "CreateModelSnapshot expects a Model")
@@ -227,6 +233,7 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                 transparency = descendant.Transparency,
                 material = descendant.Material.Name,
                 reflectance = descendant.Reflectance,
+                skeletonPart = isSkeletonBodyPart(descendant, model),
                 textures = {},
             }
             if descendant:IsA("MeshPart") then
@@ -271,7 +278,9 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
     end
     local joints = {}
     for _, descendant in ipairs(model:GetDescendants()) do
-        if descendant:IsA("Motor6D") then
+        if descendant:IsA("Motor6D") and descendant:FindFirstAncestorOfClass("Model") == model
+            and descendant.Part0 and descendant.Part1
+            and isSkeletonBodyPart(descendant.Part0, model) and isSkeletonBodyPart(descendant.Part1, model) then
             local fromIndex = partIndexes[descendant.Part0]
             local toIndex = partIndexes[descendant.Part1]
             if fromIndex and toIndex then
@@ -286,7 +295,7 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
     if shirt then appearance.shirtTemplate = shirt.ShirtTemplate end
     if pants then appearance.pantsTemplate = pants.PantsTemplate end
     if shirtGraphic then appearance.shirtGraphic = shirtGraphic.Graphic end
-    return { version = 3, name = model.Name, parts = parts, joints = joints, appearance = appearance }
+    return { version = 4, name = model.Name, parts = parts, joints = joints, appearance = appearance }
 end
 
 function WebsiteUIBridge:GetModelAssetIds(snapshot)
