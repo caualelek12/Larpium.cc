@@ -2,7 +2,7 @@ local HttpService = game:GetService("HttpService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-15-esp-model-v2"
+WebsiteUIBridge.Version = "2026-07-15-esp-assets-v3"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -192,6 +192,13 @@ local function colorHex(color)
     return string.format("#%02x%02x%02x", math.floor(color.R * 255 + 0.5), math.floor(color.G * 255 + 0.5), math.floor(color.B * 255 + 0.5))
 end
 
+local function assetIdFromReference(value)
+    local text = tostring(value or "")
+    return text:match("^%s*(%d+)%s*$")
+        or text:match("[Rr][Bb][Xx][Aa][Ss][Ss][Ee][Tt][Ii][Dd]://(%d+)")
+        or text:match("[?&][Ii][Dd]=(%d+)")
+end
+
 function WebsiteUIBridge:CreateModelSnapshot(model, options)
     options = options or {}
     assert(typeof(model) == "Instance" and model:IsA("Model"), "CreateModelSnapshot expects a Model")
@@ -251,6 +258,45 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
     return { version = 2, name = model.Name, parts = parts, joints = joints }
 end
 
+function WebsiteUIBridge:GetModelAssetIds(snapshot)
+    local ids, seen = {}, {}
+    local function add(value)
+        local id = assetIdFromReference(value)
+        if id and id ~= "0" and not seen[id] and #ids < 80 then
+            seen[id] = true
+            table.insert(ids, id)
+        end
+    end
+    for _, part in ipairs(type(snapshot) == "table" and snapshot.parts or {}) do
+        add(part.meshId)
+        add(part.textureId)
+        local surface = part.surfaceAppearance
+        if type(surface) == "table" then
+            add(surface.colorMap)
+            add(surface.metalnessMap)
+            add(surface.normalMap)
+            add(surface.roughnessMap)
+        end
+    end
+    return ids
+end
+
+function WebsiteUIBridge:CacheAssets(assetIds)
+    if not self.Token or self.Token == "" then return false, "Pair the bridge first." end
+    local unique, seen = {}, {}
+    for _, value in ipairs(type(assetIds) == "table" and assetIds or {}) do
+        local id = assetIdFromReference(value)
+        if id and id ~= "0" and not seen[id] and #unique < 80 then
+            seen[id] = true
+            table.insert(unique, id)
+        end
+    end
+    if #unique == 0 then return true, { requested = 0, cached = {}, failed = {} } end
+    local data, err = jsonRequest(self.BaseUrl .. "/api/ui/device/assets/cache", "POST", { assetIds = unique }, self.Token)
+    if not data then return false, err end
+    return true, data
+end
+
 function WebsiteUIBridge:PublishLocalCharacter(options)
     local players = game:GetService("Players")
     local player = players.LocalPlayer
@@ -264,6 +310,10 @@ function WebsiteUIBridge:PublishModel(model, options)
     local snapshot = self:CreateModelSnapshot(model, options)
     local data, err = jsonRequest(self.BaseUrl .. "/api/ui/device/model", "POST", { snapshot = snapshot }, self.Token)
     if not data then return false, err end
+    if options and options.CacheAssets == true then
+        local cacheOk, cacheResult = self:CacheAssets(self:GetModelAssetIds(snapshot))
+        data.assetCache = cacheOk and cacheResult or { requested = 0, cached = {}, failed = {}, error = cacheResult }
+    end
     return true, data
 end
 

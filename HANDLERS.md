@@ -92,7 +92,7 @@ local Players = game:GetService("Players")
 bridge:BindEspHandler(EspHandler, "Players", true)
 
 -- Publish once when opening the designer.
-bridge:PublishLocalCharacter()
+bridge:PublishLocalCharacter({ CacheAssets = true })
 
 -- Or keep the preview current while characters respawn/change.
 bridge:StartModelStreaming(function()
@@ -102,7 +102,7 @@ end, 20)
 bridge:Start()
 ```
 
-`PublishModel` sends sanitized visual part data, mesh and texture references, material data, and Motor6D connections. Scripts, attributes, object values, and arbitrary executable instances are not uploaded. The skeleton is generated from those connections and cannot be repositioned independently. The preview expires from server memory when updates stop. `EspHandler.ApplyLayout(layout, groupName)` can also apply an exported layout directly without using the bridge.
+`PublishModel` sends sanitized visual part data, mesh and texture references, material data, and Motor6D connections. With `CacheAssets = true`, the paired device asks the server to cache up to 80 unique mesh, texture, and SurfaceAppearance asset IDs found in that exact snapshot. The Roblox security cookie remains server-side and is never sent to the game. Scripts, attributes, object values, and arbitrary executable instances are not uploaded. The skeleton is generated from those connections and cannot be repositioned independently. The preview expires from server memory when updates stop. `EspHandler.ApplyLayout(layout, groupName)` can also apply an exported layout directly without using the bridge.
 
 ESP elements use ordered `Top`, `Bottom`, `Left`, and `Right` slots. Box, skeleton, and head-circle geometry stay attached to the projected character. Developers can connect a custom website element to runtime behavior without changing the handler:
 
@@ -120,6 +120,6 @@ EspHandler.RegisterLayoutElement("armor", function(settings, element, options)
 end)
 ```
 
-`ESPRealtimeModelTest.lua` is a minimal LocalPlayer streaming test. Set its HTTPS site URL and one-time pairing code before running it.
+`ESPRealtimeModelTest.lua` is a LocalPlayer model-and-asset test. Set its HTTPS site URL and one-time pairing code before running it. The first upload prints part, requested asset, cached asset, and failed asset counts; later streaming uploads avoid repeatedly downloading the same assets.
 
 The pairing code is single-use and expires after ten minutes. The saved device token is scoped to one account and one UI project; rank or access removal is checked again on every poll. HTTP deployments are supported, but device tokens travel without transport encryption until the site is moved behind HTTPS.
