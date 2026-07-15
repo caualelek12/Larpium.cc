@@ -2,7 +2,7 @@ local HttpService = game:GetService("HttpService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-15-character-assets-v4"
+WebsiteUIBridge.Version = "2026-07-15-accessory-transform-v5"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -209,6 +209,7 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
         if descendant:IsA("BasePart") and #parts < maximumParts then
             local relative = pivot:ToObjectSpace(descendant.CFrame)
             local rx, ry, rz = relative:ToOrientation()
+            local _, _, _, r00, r01, r02, r10, r11, r12, r20, r21, r22 = relative:GetComponents()
             local shape = "Box"
             if descendant:IsA("Part") then
                 if descendant.Shape == Enum.PartType.Ball then shape = "Ball"
@@ -221,6 +222,7 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                 size = { descendant.Size.X, descendant.Size.Y, descendant.Size.Z },
                 position = { relative.Position.X, relative.Position.Y, relative.Position.Z },
                 rotation = { rx, ry, rz },
+                rotationMatrix = { r00, r01, r02, r10, r11, r12, r20, r21, r22 },
                 color = colorHex(descendant.Color),
                 transparency = descendant.Transparency,
                 material = descendant.Material.Name,
@@ -237,6 +239,12 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                 item.meshId = specialMesh.MeshId
                 item.textureId = specialMesh.TextureId
                 item.meshScale = { specialMesh.Scale.X, specialMesh.Scale.Y, specialMesh.Scale.Z }
+                item.meshOffset = { specialMesh.Offset.X, specialMesh.Offset.Y, specialMesh.Offset.Z }
+                item.meshVertexColor = { specialMesh.VertexColor.X, specialMesh.VertexColor.Y, specialMesh.VertexColor.Z }
+            end
+            local accessory = descendant:FindFirstAncestorOfClass("Accessory")
+            if accessory then
+                item.accessory = { name = accessory.Name, type = accessory.AccessoryType.Name }
             end
             for _, child in ipairs(descendant:GetChildren()) do
                 if child:IsA("Decal") or child:IsA("Texture") then
