@@ -26,6 +26,9 @@ print(string.format(
     #(cache.failed or {})
 ))
 if cache.error then warn("Asset cache test failed: " .. tostring(cache.error)) end
+if (tonumber(cache.requested) or 0) == 0 then
+    warn("The character exposed no mesh or texture asset IDs. The preview will use part geometry and colors only.")
+end
 for _, failure in ipairs(cache.failed or {}) do
     warn("Asset " .. tostring(failure.assetId) .. " failed: " .. tostring(failure.error))
 end

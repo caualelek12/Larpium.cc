@@ -2,7 +2,7 @@ local HttpService = game:GetService("HttpService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-15-esp-assets-v3"
+WebsiteUIBridge.Version = "2026-07-15-character-assets-v4"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -225,11 +225,27 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                 transparency = descendant.Transparency,
                 material = descendant.Material.Name,
                 reflectance = descendant.Reflectance,
+                textures = {},
             }
             if descendant:IsA("MeshPart") then
                 item.meshId = descendant.MeshId
                 item.textureId = descendant.TextureID
                 item.meshSize = { descendant.MeshSize.X, descendant.MeshSize.Y, descendant.MeshSize.Z }
+            end
+            local specialMesh = descendant:FindFirstChildOfClass("SpecialMesh")
+            if specialMesh then
+                item.meshId = specialMesh.MeshId
+                item.textureId = specialMesh.TextureId
+                item.meshScale = { specialMesh.Scale.X, specialMesh.Scale.Y, specialMesh.Scale.Z }
+            end
+            for _, child in ipairs(descendant:GetChildren()) do
+                if child:IsA("Decal") or child:IsA("Texture") then
+                    table.insert(item.textures, {
+                        assetId = child.Texture,
+                        face = child.Face.Name,
+                        kind = child.ClassName,
+                    })
+                end
             end
             local surface = descendant:FindFirstChildOfClass("SurfaceAppearance")
             if surface then
@@ -255,7 +271,14 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
             end
         end
     end
-    return { version = 2, name = model.Name, parts = parts, joints = joints }
+    local appearance = {}
+    local shirt = model:FindFirstChildOfClass("Shirt")
+    local pants = model:FindFirstChildOfClass("Pants")
+    local shirtGraphic = model:FindFirstChildOfClass("ShirtGraphic")
+    if shirt then appearance.shirtTemplate = shirt.ShirtTemplate end
+    if pants then appearance.pantsTemplate = pants.PantsTemplate end
+    if shirtGraphic then appearance.shirtGraphic = shirtGraphic.Graphic end
+    return { version = 3, name = model.Name, parts = parts, joints = joints, appearance = appearance }
 end
 
 function WebsiteUIBridge:GetModelAssetIds(snapshot)
@@ -270,6 +293,9 @@ function WebsiteUIBridge:GetModelAssetIds(snapshot)
     for _, part in ipairs(type(snapshot) == "table" and snapshot.parts or {}) do
         add(part.meshId)
         add(part.textureId)
+        for _, texture in ipairs(type(part.textures) == "table" and part.textures or {}) do
+            add(texture.assetId)
+        end
         local surface = part.surfaceAppearance
         if type(surface) == "table" then
             add(surface.colorMap)
@@ -277,6 +303,12 @@ function WebsiteUIBridge:GetModelAssetIds(snapshot)
             add(surface.normalMap)
             add(surface.roughnessMap)
         end
+    end
+    local appearance = type(snapshot) == "table" and snapshot.appearance or nil
+    if type(appearance) == "table" then
+        add(appearance.shirtTemplate)
+        add(appearance.pantsTemplate)
+        add(appearance.shirtGraphic)
     end
     return ids
 end
