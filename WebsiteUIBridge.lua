@@ -205,13 +205,54 @@ local function isSkeletonBodyPart(part, rootModel)
     return part:FindFirstAncestorOfClass("Model") == rootModel
 end
 
+local function createStaticPoseClone(model)
+    local previousArchivable = model.Archivable
+    model.Archivable = true
+    local ok, clone = pcall(function() return model:Clone() end)
+    model.Archivable = previousArchivable
+    if not ok or not clone then return nil end
+
+    local rootPart = clone:FindFirstChild("HumanoidRootPart") or clone.PrimaryPart or clone:FindFirstChildWhichIsA("BasePart")
+    if not rootPart then return clone end
+    rootPart.CFrame = CFrame.new(rootPart.Position)
+
+    local joints = {}
+    for _, descendant in ipairs(clone:GetDescendants()) do
+        if (descendant:IsA("Motor6D") or descendant:IsA("Weld")) and descendant.Part0 and descendant.Part1 then
+            table.insert(joints, descendant)
+        end
+    end
+
+    local solved = { [rootPart] = true }
+    for _ = 1, #joints + 1 do
+        local changed = false
+        for _, joint in ipairs(joints) do
+            local part0, part1 = joint.Part0, joint.Part1
+            if solved[part0] and not solved[part1] then
+                part1.CFrame = part0.CFrame * joint.C0 * joint.C1:Inverse()
+                solved[part1] = true
+                changed = true
+            elseif solved[part1] and not solved[part0] then
+                part0.CFrame = part1.CFrame * joint.C1 * joint.C0:Inverse()
+                solved[part0] = true
+                changed = true
+            end
+        end
+        if not changed then break end
+    end
+    return clone
+end
+
 function WebsiteUIBridge:CreateModelSnapshot(model, options)
     options = options or {}
     assert(typeof(model) == "Instance" and model:IsA("Model"), "CreateModelSnapshot expects a Model")
+    local snapshotModel = options.StaticPose == true and createStaticPoseClone(model) or model
+    if not snapshotModel then snapshotModel = model end
+    local ownsSnapshotModel = snapshotModel ~= model
     local maximumParts = math.clamp(math.floor(tonumber(options.MaxParts) or 160), 1, 160)
-    local pivot = model:GetPivot()
+    local pivot = snapshotModel:GetPivot()
     local parts, partIndexes = {}, {}
-    for _, descendant in ipairs(model:GetDescendants()) do
+    for _, descendant in ipairs(snapshotModel:GetDescendants()) do
         if descendant:IsA("BasePart") and #parts < maximumParts then
             local relative = pivot:ToObjectSpace(descendant.CFrame)
             local rx, ry, rz = relative:ToOrientation()
@@ -233,7 +274,7 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                 transparency = descendant.Transparency,
                 material = descendant.Material.Name,
                 reflectance = descendant.Reflectance,
-                skeletonPart = isSkeletonBodyPart(descendant, model),
+                skeletonPart = isSkeletonBodyPart(descendant, snapshotModel),
                 textures = {},
             }
             if descendant:IsA("MeshPart") then
@@ -277,10 +318,10 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
         end
     end
     local joints = {}
-    for _, descendant in ipairs(model:GetDescendants()) do
-        if descendant:IsA("Motor6D") and descendant:FindFirstAncestorOfClass("Model") == model
+    for _, descendant in ipairs(snapshotModel:GetDescendants()) do
+        if descendant:IsA("Motor6D") and descendant:FindFirstAncestorOfClass("Model") == snapshotModel
             and descendant.Part0 and descendant.Part1
-            and isSkeletonBodyPart(descendant.Part0, model) and isSkeletonBodyPart(descendant.Part1, model) then
+            and isSkeletonBodyPart(descendant.Part0, snapshotModel) and isSkeletonBodyPart(descendant.Part1, snapshotModel) then
             local fromIndex = partIndexes[descendant.Part0]
             local toIndex = partIndexes[descendant.Part1]
             if fromIndex and toIndex then
@@ -289,13 +330,15 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
         end
     end
     local appearance = {}
-    local shirt = model:FindFirstChildOfClass("Shirt")
-    local pants = model:FindFirstChildOfClass("Pants")
-    local shirtGraphic = model:FindFirstChildOfClass("ShirtGraphic")
+    local shirt = snapshotModel:FindFirstChildOfClass("Shirt")
+    local pants = snapshotModel:FindFirstChildOfClass("Pants")
+    local shirtGraphic = snapshotModel:FindFirstChildOfClass("ShirtGraphic")
     if shirt then appearance.shirtTemplate = shirt.ShirtTemplate end
     if pants then appearance.pantsTemplate = pants.PantsTemplate end
     if shirtGraphic then appearance.shirtGraphic = shirtGraphic.Graphic end
-    return { version = 4, name = model.Name, parts = parts, joints = joints, appearance = appearance }
+    local snapshot = { version = 4, name = model.Name, parts = parts, joints = joints, appearance = appearance }
+    if ownsSnapshotModel then snapshotModel:Destroy() end
+    return snapshot
 end
 
 function WebsiteUIBridge:GetModelAssetIds(snapshot)

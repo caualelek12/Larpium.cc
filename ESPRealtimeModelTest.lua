@@ -12,7 +12,7 @@ local bridge = WebsiteUIBridge.new({
     PollInterval = 1,
 })
 
-local ok, result = bridge:PublishLocalCharacter({ MaxParts = 160, CacheAssets = true })
+local ok, result = bridge:PublishLocalCharacter({ MaxParts = 160, CacheAssets = true, StaticPose = true })
 if not ok then
     error("Model publish failed: " .. tostring(result))
 end
@@ -33,10 +33,5 @@ for _, failure in ipairs(cache.failed or {}) do
     warn("Asset " .. tostring(failure.assetId) .. " failed: " .. tostring(failure.error))
 end
 
-bridge:StartModelStreaming(function()
-    local player = game:GetService("Players").LocalPlayer
-    return player and player.Character
-end, 10, { MaxParts = 160, CacheAssets = false })
-
 bridge:Start()
-print("LocalPlayer model streaming to the ESP designer.")
+print("Static LocalPlayer model published to the ESP designer.")
