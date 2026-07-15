@@ -1421,6 +1421,108 @@ end
 local SimpleController = {}
 SimpleController.__index = SimpleController
 
+local function layoutColor(value, fallback)
+    if typeof(value) == "Color3" then return value end
+    local hex = tostring(value or ""):match("^#?(%x%x%x%x%x%x)$")
+    if not hex then return fallback end
+    return Color3.fromRGB(
+        tonumber(hex:sub(1, 2), 16),
+        tonumber(hex:sub(3, 4), 16),
+        tonumber(hex:sub(5, 6), 16)
+    )
+end
+
+EspHandler.LayoutElementAdapters = EspHandler.LayoutElementAdapters or {}
+
+function EspHandler.RegisterLayoutElement(typeName, adapter)
+    assert(type(typeName) == "string" and typeName ~= "", "Layout element type must be a non-empty string")
+    assert(type(adapter) == "function", "Layout element adapter must be a function")
+    EspHandler.LayoutElementAdapters[string.lower(typeName)] = adapter
+    return adapter
+end
+
+function EspHandler.UnregisterLayoutElement(typeName)
+    EspHandler.LayoutElementAdapters[string.lower(tostring(typeName or ""))] = nil
+end
+
+function EspHandler.ApplyLayout(layout, espName)
+    espName = espName or DEFAULT_ESP
+    if type(layout) ~= "table" then return EspHandler.Settings[espName] end
+
+    local settings = {
+        Box = { Enabled = false },
+        Health = { Enabled = false },
+        Skeleton = { Enabled = false },
+        HeadCircle = { Enabled = false },
+        Texts = {
+            Name = { Enabled = false },
+            Distance = { Enabled = false },
+            Weapon = { Enabled = false },
+            State = { Enabled = false },
+        },
+    }
+
+    for _, element in ipairs(layout.elements or {}) do
+        local kind = string.lower(tostring(element.type or ""))
+        local enabled = element.enabled ~= false
+        local options = type(element.settings) == "table" and element.settings or {}
+        if kind == "box" then
+            settings.Box = {
+                Enabled = enabled,
+                Type = options.mode == "Square" and "Square" or "Corner",
+                Color = layoutColor(options.color, Color3.new(1, 1, 1)),
+                Thickness = tonumber(options.thickness) or 2,
+                Outline = options.outline ~= false,
+                OutlineColor = layoutColor(options.outlineColor, Color3.new(0, 0, 0)),
+            }
+        elseif kind == "health" then
+            settings.Health = {
+                Enabled = enabled,
+                Side = element.side or options.side or "Left",
+                Order = tonumber(element.order) or 0,
+                Width = tonumber(options.thickness) or 4,
+                Color = layoutColor(options.color, Color3.fromRGB(52, 208, 88)),
+                LowColor = layoutColor(options.lowColor, Color3.fromRGB(255, 60, 72)),
+                BackgroundColor = layoutColor(options.backgroundColor, Color3.fromRGB(30, 30, 30)),
+                Rounded = options.rounded ~= false,
+                Text = { Enabled = false },
+            }
+        elseif kind == "skeleton" then
+            settings.Skeleton = { Enabled = enabled, Color = layoutColor(options.color, Color3.new(1, 1, 1)), Thickness = tonumber(options.thickness) or 2 }
+        elseif kind == "headcircle" then
+            settings.HeadCircle = { Enabled = enabled, Color = layoutColor(options.color, Color3.new(1, 1, 1)), Thickness = tonumber(options.thickness) or 1, Filled = options.filled == true }
+        else
+            local textNames = { name = "Name", distance = "Distance", weapon = "Weapon", state = "State" }
+            local name = textNames[kind]
+            if name then
+                local textSettings = settings.Texts[name]
+                textSettings.Enabled = enabled
+                textSettings.Anchor = element.side or "Top"
+                textSettings.Order = tonumber(element.order) or 0
+                textSettings.Offset = Vector2.zero
+                textSettings.Color = layoutColor(options.color, Color3.new(1, 1, 1))
+                textSettings.Size = tonumber(options.fontSize) or 12
+                textSettings.Outline = options.outline ~= false
+                textSettings.OutlineColor = layoutColor(options.outlineColor, Color3.new(0, 0, 0))
+                if name == "Distance" then
+                    local unit = options.unit == "studs" and "studs" or "meters"
+                    textSettings.Text = function(_, _, info)
+                        local distance = tonumber(info and info.Distance) or 0
+                        if unit == "studs" then return tostring(math.floor(distance)) .. " studs" end
+                        return tostring(math.floor(distance * 0.28)) .. "m"
+                    end
+                end
+            else
+                local adapter = EspHandler.LayoutElementAdapters[kind]
+                if adapter then adapter(settings, element, options, espName) end
+            end
+        end
+    end
+
+    EspHandler.SetSettings(espName, settings)
+    return EspHandler.Settings[espName]
+end
+
 function EspHandler.Configure(options, espName)
     if type(options) == "string" then
         espName, options = options, espName

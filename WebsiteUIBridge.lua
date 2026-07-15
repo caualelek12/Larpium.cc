@@ -2,7 +2,7 @@ local HttpService = game:GetService("HttpService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-14-runtime-ui"
+WebsiteUIBridge.Version = "2026-07-15-esp-model-v2"
 
 local function trimSlash(value)
     return tostring(value or ""):gsub("/+$", "")
@@ -73,11 +73,14 @@ function WebsiteUIBridge.new(options)
     self.Bindings = {}
     self.Values = {}
     self.Project = nil
+    self.EspLayout = nil
+    self.EspLayoutJson = ""
     self.Revision = 0
     self.Running = false
     self.Connected = false
     self.OnError = options.OnError
     self.OnSchema = options.OnSchema
+    self.OnEspLayout = options.OnEspLayout
     self.OnConnected = options.OnConnected
     self.Changed = Instance.new("BindableEvent")
     self.ConnectionChanged = Instance.new("BindableEvent")
@@ -174,6 +177,116 @@ function WebsiteUIBridge:OnConnection(callback, fireImmediately)
     return connection
 end
 
+function WebsiteUIBridge:BindEspHandler(espHandler, espName, fireImmediately)
+    assert(type(espHandler) == "table" and type(espHandler.ApplyLayout) == "function", "ESP handler must provide ApplyLayout")
+    local function apply(layout)
+        espHandler.ApplyLayout(layout, espName)
+    end
+    self.OnEspLayout = apply
+    if fireImmediately ~= false and self.EspLayout then task.spawn(apply, self.EspLayout) end
+    return apply
+end
+
+local function colorHex(color)
+    return string.format("#%02x%02x%02x", math.floor(color.R * 255 + 0.5), math.floor(color.G * 255 + 0.5), math.floor(color.B * 255 + 0.5))
+end
+
+function WebsiteUIBridge:CreateModelSnapshot(model, options)
+    options = options or {}
+    assert(typeof(model) == "Instance" and model:IsA("Model"), "CreateModelSnapshot expects a Model")
+    local maximumParts = math.clamp(math.floor(tonumber(options.MaxParts) or 160), 1, 160)
+    local pivot = model:GetPivot()
+    local parts, partIndexes = {}, {}
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("BasePart") and #parts < maximumParts then
+            local relative = pivot:ToObjectSpace(descendant.CFrame)
+            local rx, ry, rz = relative:ToOrientation()
+            local shape = "Box"
+            if descendant:IsA("Part") then
+                if descendant.Shape == Enum.PartType.Ball then shape = "Ball"
+                elseif descendant.Shape == Enum.PartType.Cylinder then shape = "Cylinder" end
+            end
+            local item = {
+                name = descendant.Name,
+                className = descendant.ClassName,
+                shape = shape,
+                size = { descendant.Size.X, descendant.Size.Y, descendant.Size.Z },
+                position = { relative.Position.X, relative.Position.Y, relative.Position.Z },
+                rotation = { rx, ry, rz },
+                color = colorHex(descendant.Color),
+                transparency = descendant.Transparency,
+                material = descendant.Material.Name,
+                reflectance = descendant.Reflectance,
+            }
+            if descendant:IsA("MeshPart") then
+                item.meshId = descendant.MeshId
+                item.textureId = descendant.TextureID
+                item.meshSize = { descendant.MeshSize.X, descendant.MeshSize.Y, descendant.MeshSize.Z }
+            end
+            local surface = descendant:FindFirstChildOfClass("SurfaceAppearance")
+            if surface then
+                item.surfaceAppearance = {
+                    colorMap = surface.ColorMap,
+                    metalnessMap = surface.MetalnessMap,
+                    normalMap = surface.NormalMap,
+                    roughnessMap = surface.RoughnessMap,
+                    alphaMode = surface.AlphaMode.Name,
+                }
+            end
+            table.insert(parts, item)
+            partIndexes[descendant] = #parts
+        end
+    end
+    local joints = {}
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("Motor6D") then
+            local fromIndex = partIndexes[descendant.Part0]
+            local toIndex = partIndexes[descendant.Part1]
+            if fromIndex and toIndex then
+                table.insert(joints, { from = fromIndex, to = toIndex, name = descendant.Name })
+            end
+        end
+    end
+    return { version = 2, name = model.Name, parts = parts, joints = joints }
+end
+
+function WebsiteUIBridge:PublishLocalCharacter(options)
+    local players = game:GetService("Players")
+    local player = players.LocalPlayer
+    local character = player and player.Character
+    if not character then return false, "LocalPlayer character is not available." end
+    return self:PublishModel(character, options)
+end
+
+function WebsiteUIBridge:PublishModel(model, options)
+    if not self.Token or self.Token == "" then return false, "Pair the bridge first." end
+    local snapshot = self:CreateModelSnapshot(model, options)
+    local data, err = jsonRequest(self.BaseUrl .. "/api/ui/device/model", "POST", { snapshot = snapshot }, self.Token)
+    if not data then return false, err end
+    return true, data
+end
+
+function WebsiteUIBridge:StartModelStreaming(modelProvider, interval, options)
+    assert(type(modelProvider) == "function" or typeof(modelProvider) == "Instance", "Model provider must be a Model or function")
+    self.ModelStreaming = true
+    task.spawn(function()
+        while self.ModelStreaming do
+            local model = type(modelProvider) == "function" and modelProvider() or modelProvider
+            if typeof(model) == "Instance" and model:IsA("Model") then
+                local ok, err = self:PublishModel(model, options)
+                if not ok then self:_error(err, 0) end
+            end
+            task.wait(math.max(tonumber(interval) or 20, 5))
+        end
+    end)
+    return self
+end
+
+function WebsiteUIBridge:StopModelStreaming()
+    self.ModelStreaming = false
+    return self
+end
+
 function WebsiteUIBridge:Unbind(flag, callback)
     local callbacks = self.Bindings[flag]
     if not callbacks then return end
@@ -233,6 +346,13 @@ function WebsiteUIBridge:PollOnce()
         task.spawn(self.OnSchema, self.Project)
     end
 
+    local espLayoutJson = HttpService:JSONEncode(data.espLayout or {})
+    if espLayoutJson ~= self.EspLayoutJson then
+        self.EspLayout = data.espLayout
+        self.EspLayoutJson = espLayoutJson
+        if type(self.OnEspLayout) == "function" then task.spawn(self.OnEspLayout, self.EspLayout) end
+    end
+
     local controlTypes = {}
     for _, group in ipairs((self.Project and self.Project.groups) or {}) do
         for _, control in ipairs(group.controls or {}) do
@@ -265,6 +385,7 @@ end
 
 function WebsiteUIBridge:Stop()
     self.Running = false
+    self.ModelStreaming = false
     self:_setConnected(false)
     return self
 end
@@ -274,6 +395,8 @@ function WebsiteUIBridge:ForgetDevice()
     self.Token = nil
     self.Values = {}
     self.Project = nil
+    self.EspLayout = nil
+    self.EspLayoutJson = ""
     self:_setConnected(false)
     self:_save()
 end
