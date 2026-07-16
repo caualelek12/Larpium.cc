@@ -1,8 +1,9 @@
 local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-15-body-skeleton-v7"
+WebsiteUIBridge.Version = "2026-07-16-composed-avatar-v8"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -336,7 +337,15 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
     if shirt then appearance.shirtTemplate = shirt.ShirtTemplate end
     if pants then appearance.pantsTemplate = pants.PantsTemplate end
     if shirtGraphic then appearance.shirtGraphic = shirtGraphic.Graphic end
-    local snapshot = { version = 4, name = model.Name, parts = parts, joints = joints, appearance = appearance }
+    local player = Players:GetPlayerFromCharacter(model)
+    local snapshot = {
+        version = 5,
+        name = model.Name,
+        userId = player and player.UserId or nil,
+        parts = parts,
+        joints = joints,
+        appearance = appearance,
+    }
     if ownsSnapshotModel then snapshotModel:Destroy() end
     return snapshot
 end
