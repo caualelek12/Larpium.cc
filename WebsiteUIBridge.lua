@@ -1,9 +1,10 @@
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local AssetService = game:GetService("AssetService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-16-composed-avatar-v8"
+WebsiteUIBridge.Version = "2026-07-16-generic-model-geometry-v9"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -200,6 +201,87 @@ local function assetIdFromReference(value)
         or text:match("[?&][Ii][Dd]=(%d+)")
 end
 
+local function roundedNumber(value)
+    if value ~= value or value == math.huge or value == -math.huge then return 0 end
+    local scaled = value * 100000
+    return (scaled >= 0 and math.floor(scaled + 0.5) or math.ceil(scaled - 0.5)) / 100000
+end
+
+local function appendVector3(target, value)
+    target[#target + 1] = roundedNumber(value.X)
+    target[#target + 1] = roundedNumber(value.Y)
+    target[#target + 1] = roundedNumber(value.Z)
+end
+
+local function appendVector2(target, value)
+    target[#target + 1] = roundedNumber(value.X)
+    target[#target + 1] = roundedNumber(value.Y)
+end
+
+local function meshContentForPart(part, specialMesh)
+    if part:IsA("MeshPart") then
+        local ok, content = pcall(function() return part.MeshContent end)
+        if ok and content then return content end
+    end
+    local uri = specialMesh and specialMesh.MeshId or (part:IsA("MeshPart") and part.MeshId or "")
+    if uri == "" then return nil end
+    local ok, content = pcall(function() return Content.fromUri(uri) end)
+    return ok and content or nil
+end
+
+local function captureMeshGeometry(part, specialMesh, triangleLimit)
+    if triangleLimit <= 0 then return nil, 0 end
+    local content = meshContentForPart(part, specialMesh)
+    if not content then return nil, 0 end
+    local ok, editableMesh = pcall(function()
+        return AssetService:CreateEditableMeshAsync(content)
+    end)
+    if not ok or not editableMesh then return nil, 0 end
+
+    local positions, normals, uvs = {}, {}, {}
+    local captured = 0
+    local facesOk, faces = pcall(function() return editableMesh:GetFaces() end)
+    if facesOk then
+        for _, faceId in ipairs(faces) do
+            if captured >= triangleLimit then break end
+            local verticesOk, vertices = pcall(function() return editableMesh:GetFaceVertices(faceId) end)
+            local uvsOk, uvIds = pcall(function() return editableMesh:GetFaceUVs(faceId) end)
+            local normalsOk, normalIds = pcall(function() return editableMesh:GetFaceNormals(faceId) end)
+            if verticesOk and #vertices >= 3 then
+                local facePositions, faceNormals, faceUvs = {}, {}, {}
+                local valid = true
+                for corner = 1, 3 do
+                    local positionOk, position = pcall(function() return editableMesh:GetPosition(vertices[corner]) end)
+                    if not positionOk then valid = false break end
+                    appendVector3(facePositions, position)
+                    if normalsOk and normalIds[corner] then
+                        local normalOk, normal = pcall(function() return editableMesh:GetNormal(normalIds[corner]) end)
+                        if normalOk then appendVector3(faceNormals, normal) end
+                    end
+                    if uvsOk and uvIds[corner] then
+                        local uvOk, uv = pcall(function() return editableMesh:GetUV(uvIds[corner]) end)
+                        if uvOk then appendVector2(faceUvs, uv) end
+                    end
+                end
+                if valid then
+                    for _, value in ipairs(facePositions) do positions[#positions + 1] = value end
+                    if #faceNormals == 9 then for _, value in ipairs(faceNormals) do normals[#normals + 1] = value end end
+                    if #faceUvs == 6 then for _, value in ipairs(faceUvs) do uvs[#uvs + 1] = value end end
+                    captured = captured + 1
+                end
+            end
+        end
+    end
+    pcall(function() editableMesh:Destroy() end)
+    if captured == 0 then return nil, 0 end
+    return {
+        positions = positions,
+        normals = #normals == #positions and normals or nil,
+        uvs = #uvs * 3 == #positions * 2 and uvs or nil,
+        triangleCount = captured,
+    }, captured
+end
+
 local function isSkeletonBodyPart(part, rootModel)
     if not part:IsA("BasePart") then return false end
     if part:FindFirstAncestorOfClass("Accessory") or part:FindFirstAncestorOfClass("Tool") then return false end
@@ -251,6 +333,9 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
     if not snapshotModel then snapshotModel = model end
     local ownsSnapshotModel = snapshotModel ~= model
     local maximumParts = math.clamp(math.floor(tonumber(options.MaxParts) or 160), 1, 160)
+    local maximumTriangles = math.clamp(math.floor(tonumber(options.MaxTriangles) or 30000), 0, 50000)
+    local maximumTrianglesPerPart = math.clamp(math.floor(tonumber(options.MaxTrianglesPerPart) or 12000), 0, 20000)
+    local remainingTriangles = maximumTriangles
     local pivot = snapshotModel:GetPivot()
     local parts, partIndexes = {}, {}
     for _, descendant in ipairs(snapshotModel:GetDescendants()) do
@@ -290,6 +375,11 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                 item.meshScale = { specialMesh.Scale.X, specialMesh.Scale.Y, specialMesh.Scale.Z }
                 item.meshOffset = { specialMesh.Offset.X, specialMesh.Offset.Y, specialMesh.Offset.Z }
                 item.meshVertexColor = { specialMesh.VertexColor.X, specialMesh.VertexColor.Y, specialMesh.VertexColor.Z }
+            end
+            if options.IncludeGeometry ~= false and item.meshId and remainingTriangles > 0 then
+                local geometry, captured = captureMeshGeometry(descendant, specialMesh, math.min(maximumTrianglesPerPart, remainingTriangles))
+                if geometry then item.geometry = geometry end
+                remainingTriangles = remainingTriangles - captured
             end
             local accessory = descendant:FindFirstAncestorOfClass("Accessory")
             if accessory then
@@ -340,9 +430,10 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
     local player = Players:GetPlayerFromCharacter(model)
     local userId = tonumber(options.UserId) or (player and player.UserId) or nil
     local snapshot = {
-        version = 5,
+        version = 6,
         name = model.Name,
         userId = userId,
+        geometryTriangles = maximumTriangles - remainingTriangles,
         parts = parts,
         joints = joints,
         appearance = appearance,
@@ -408,7 +499,6 @@ function WebsiteUIBridge:PublishLocalCharacter(options)
     local character = player and player.Character
     if not character then return false, "LocalPlayer character is not available." end
     options = options or {}
-    options.UserId = player.UserId
     return self:PublishModel(character, options)
 end
 

@@ -1,9 +1,10 @@
 -- Replace these two values, then execute this file after your character has spawned.
 local BASE_URL = "https://larpium.dedyn.io:45916"
 local PAIR_CODE = "LRP-UI-XXXXXXXX"
+local MODEL_TO_PUBLISH = nil -- Example: workspace.NPCs.Guard or workspace.Loot.Crate
 
 local WebsiteUIBridge = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/WebsiteUIBridge.lua?v=20260716-avatar3"
+    "https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/WebsiteUIBridge.lua?v=20260716-model1"
 ))()
 
 local bridge = WebsiteUIBridge.new({
@@ -12,18 +13,30 @@ local bridge = WebsiteUIBridge.new({
     PollInterval = 1,
 })
 
-local ok, result = bridge:PublishLocalCharacter({ MaxParts = 160, CacheAssets = true, StaticPose = true })
+local publishOptions = {
+    MaxParts = 160,
+    MaxTriangles = 30000,
+    MaxTrianglesPerPart = 12000,
+    IncludeGeometry = true,
+    CacheAssets = true,
+    StaticPose = true,
+}
+local ok, result
+if MODEL_TO_PUBLISH then
+    ok, result = bridge:PublishModel(MODEL_TO_PUBLISH, publishOptions)
+else
+    ok, result = bridge:PublishLocalCharacter(publishOptions)
+end
 if not ok then
     error("Model publish failed: " .. tostring(result))
 end
 
 local cache = result.assetCache or {}
 print("WebsiteUIBridge version: " .. tostring(WebsiteUIBridge.Version))
-print("Uploaded Roblox user ID: " .. tostring(result.userId or "missing"))
-if not result.userId then warn("The server did not receive a Roblox user ID; composed avatar rendering cannot start.") end
 print(string.format(
-    "Model uploaded: %d parts. Assets requested: %d, cached: %d, failed: %d.",
+    "Model uploaded: %d parts, %d streamed triangles. Assets requested: %d, cached: %d, failed: %d.",
     tonumber(result.parts) or 0,
+    tonumber(result.geometryTriangles) or 0,
     tonumber(cache.requested) or 0,
     #(cache.cached or {}),
     #(cache.failed or {})
