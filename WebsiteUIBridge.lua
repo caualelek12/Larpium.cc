@@ -4,7 +4,7 @@ local AssetService = game:GetService("AssetService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-16-generic-model-geometry-v11"
+WebsiteUIBridge.Version = "2026-07-16-hybrid-avatar-model-v12"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -422,6 +422,7 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                 material = descendant.Material.Name,
                 reflectance = descendant.Reflectance,
                 skeletonPart = isSkeletonBodyPart(descendant, snapshotModel),
+                layered = descendant:FindFirstChildWhichIsA("WrapLayer", true) ~= nil,
                 textures = {},
             }
             if descendant:IsA("MeshPart") then
@@ -437,7 +438,7 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                 item.meshOffset = { specialMesh.Offset.X, specialMesh.Offset.Y, specialMesh.Offset.Z }
                 item.meshVertexColor = { specialMesh.VertexColor.X, specialMesh.VertexColor.Y, specialMesh.VertexColor.Z }
             end
-            if options.IncludeGeometry ~= false and item.meshId and remainingTriangles > 0 then
+            if options.IncludeGeometry ~= false and item.meshId and not item.layered and remainingTriangles > 0 then
                 local geometry, captured = captureMeshGeometry(descendant, specialMesh, math.min(maximumTrianglesPerPart, remainingTriangles))
                 if geometry then item.geometry = geometry end
                 remainingTriangles = remainingTriangles - captured
@@ -491,6 +492,8 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
     local snapshot = {
         version = 6,
         name = model.Name,
+        userId = tostring(options.UserId or ""),
+        sourceKind = options.AvatarThumbnail == true and "avatar" or "model",
         geometryTriangles = maximumTriangles - remainingTriangles,
         parts = parts,
         joints = joints,
@@ -557,7 +560,11 @@ function WebsiteUIBridge:PublishLocalCharacter(options)
     local character = player and player.Character
     if not character then return false, "LocalPlayer character is not available." end
     options = options or {}
-    return self:PublishModel(character, options)
+    local publishOptions = {}
+    for key, value in pairs(options) do publishOptions[key] = value end
+    publishOptions.UserId = publishOptions.UserId or player.UserId
+    if publishOptions.AvatarThumbnail == nil then publishOptions.AvatarThumbnail = true end
+    return self:PublishModel(character, publishOptions)
 end
 
 function WebsiteUIBridge:PublishModel(model, options)
