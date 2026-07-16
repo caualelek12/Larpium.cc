@@ -4,7 +4,7 @@ local AssetService = game:GetService("AssetService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-16-generic-model-geometry-v9"
+WebsiteUIBridge.Version = "2026-07-16-generic-model-geometry-v11"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -231,12 +231,69 @@ end
 
 local function captureMeshGeometry(part, specialMesh, triangleLimit)
     if triangleLimit <= 0 then return nil, 0 end
-    local content = meshContentForPart(part, specialMesh)
-    if not content then return nil, 0 end
-    local ok, editableMesh = pcall(function()
-        return AssetService:CreateEditableMeshAsync(content)
-    end)
+    local deformation = "raw"
+    local editableMesh
+    local wrapDeformer = part:FindFirstChildWhichIsA("WrapDeformer", true)
+    if wrapDeformer then
+        local deformerOk, deformedMesh = pcall(function() return wrapDeformer:CreateEditableMeshAsync() end)
+        if deformerOk and deformedMesh then
+            editableMesh = deformedMesh
+            deformation = "wrap"
+        end
+    end
+    local content = not editableMesh and meshContentForPart(part, specialMesh) or nil
+    if not editableMesh and not content then return nil, 0 end
+    local ok = editableMesh ~= nil
+    if not editableMesh then
+        ok, editableMesh = pcall(function()
+            return AssetService:CreateEditableMeshAsync(content)
+        end)
+    end
     if not ok or not editableMesh then return nil, 0 end
+
+    local boneTransforms = {}
+    if deformation == "raw" then
+        local bonesOk, boneIds = pcall(function() return editableMesh:GetBones() end)
+        if bonesOk then
+            for _, boneId in ipairs(boneIds) do
+                local nameOk, boneName = pcall(function() return editableMesh:GetBoneName(boneId) end)
+                local bindOk, bindCFrame = pcall(function() return editableMesh:GetBoneCFrame(boneId) end)
+                local liveBone = nameOk and part:FindFirstChild(boneName, true) or nil
+                if bindOk and liveBone and liveBone:IsA("Bone") then
+                    local currentOk, currentWorld = pcall(function() return liveBone.TransformedWorldCFrame end)
+                    if currentOk then
+                        boneTransforms[boneId] = part.CFrame:ToObjectSpace(currentWorld) * bindCFrame:Inverse()
+                    end
+                end
+            end
+        end
+        if next(boneTransforms) then deformation = "bones" end
+    end
+
+    local function deformVertex(vertexId, position, normal)
+        if deformation ~= "bones" then return position, normal end
+        local idsOk, boneIds = pcall(function() return editableMesh:GetVertexBones(vertexId) end)
+        local weightsOk, weights = pcall(function() return editableMesh:GetVertexBoneWeights(vertexId) end)
+        if not idsOk or not weightsOk or #boneIds == 0 then return position, normal end
+        local deformedPosition = Vector3.zero
+        local deformedNormal = Vector3.zero
+        local totalWeight = 0
+        for index, boneId in ipairs(boneIds) do
+            local transform = boneTransforms[boneId]
+            local weight = tonumber(weights[index]) or 0
+            if transform and weight > 0 then
+                deformedPosition = deformedPosition + transform:PointToWorldSpace(position) * weight
+                if normal then deformedNormal = deformedNormal + transform:VectorToWorldSpace(normal) * weight end
+                totalWeight = totalWeight + weight
+            end
+        end
+        if totalWeight <= 0 then return position, normal end
+        if totalWeight < 1 then
+            deformedPosition = deformedPosition + position * (1 - totalWeight)
+            if normal then deformedNormal = deformedNormal + normal * (1 - totalWeight) end
+        end
+        return deformedPosition, normal and deformedNormal.Magnitude > 0 and deformedNormal.Unit or normal
+    end
 
     local positions, normals, uvs = {}, {}, {}
     local captured = 0
@@ -253,11 +310,14 @@ local function captureMeshGeometry(part, specialMesh, triangleLimit)
                 for corner = 1, 3 do
                     local positionOk, position = pcall(function() return editableMesh:GetPosition(vertices[corner]) end)
                     if not positionOk then valid = false break end
-                    appendVector3(facePositions, position)
+                    local normal
                     if normalsOk and normalIds[corner] then
-                        local normalOk, normal = pcall(function() return editableMesh:GetNormal(normalIds[corner]) end)
-                        if normalOk then appendVector3(faceNormals, normal) end
+                        local normalOk, result = pcall(function() return editableMesh:GetNormal(normalIds[corner]) end)
+                        if normalOk then normal = result end
                     end
+                    position, normal = deformVertex(vertices[corner], position, normal)
+                    appendVector3(facePositions, position)
+                    if normal then appendVector3(faceNormals, normal) end
                     if uvsOk and uvIds[corner] then
                         local uvOk, uv = pcall(function() return editableMesh:GetUV(uvIds[corner]) end)
                         if uvOk then appendVector2(faceUvs, uv) end
@@ -279,6 +339,7 @@ local function captureMeshGeometry(part, specialMesh, triangleLimit)
         normals = #normals == #positions and normals or nil,
         uvs = #uvs * 3 == #positions * 2 and uvs or nil,
         triangleCount = captured,
+        deformation = deformation,
     }, captured
 end
 
