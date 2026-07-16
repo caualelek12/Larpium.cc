@@ -3,7 +3,7 @@ local BASE_URL = "https://larpium.dedyn.io:45916"
 local PAIR_CODE = "LRP-UI-XXXXXXXX"
 
 local WebsiteUIBridge = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/WebsiteUIBridge.lua?v=20260716-avatar1"
+    "https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/WebsiteUIBridge.lua?v=20260716-avatar3"
 ))()
 
 local bridge = WebsiteUIBridge.new({
@@ -18,6 +18,9 @@ if not ok then
 end
 
 local cache = result.assetCache or {}
+print("WebsiteUIBridge version: " .. tostring(WebsiteUIBridge.Version))
+print("Uploaded Roblox user ID: " .. tostring(result.userId or "missing"))
+if not result.userId then warn("The server did not receive a Roblox user ID; composed avatar rendering cannot start.") end
 print(string.format(
     "Model uploaded: %d parts. Assets requested: %d, cached: %d, failed: %d.",
     tonumber(result.parts) or 0,

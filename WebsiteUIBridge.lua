@@ -338,10 +338,11 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
     if pants then appearance.pantsTemplate = pants.PantsTemplate end
     if shirtGraphic then appearance.shirtGraphic = shirtGraphic.Graphic end
     local player = Players:GetPlayerFromCharacter(model)
+    local userId = tonumber(options.UserId) or (player and player.UserId) or nil
     local snapshot = {
         version = 5,
         name = model.Name,
-        userId = player and player.UserId or nil,
+        userId = userId,
         parts = parts,
         joints = joints,
         appearance = appearance,
@@ -406,6 +407,8 @@ function WebsiteUIBridge:PublishLocalCharacter(options)
     local player = players.LocalPlayer
     local character = player and player.Character
     if not character then return false, "LocalPlayer character is not available." end
+    options = options or {}
+    options.UserId = player.UserId
     return self:PublishModel(character, options)
 end
 
