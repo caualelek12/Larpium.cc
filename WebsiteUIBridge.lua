@@ -4,7 +4,7 @@ local AssetService = game:GetService("AssetService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-16-hybrid-avatar-model-v12"
+WebsiteUIBridge.Version = "2026-07-20-streamed-model-geometry-v13"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -438,7 +438,7 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                 item.meshOffset = { specialMesh.Offset.X, specialMesh.Offset.Y, specialMesh.Offset.Z }
                 item.meshVertexColor = { specialMesh.VertexColor.X, specialMesh.VertexColor.Y, specialMesh.VertexColor.Z }
             end
-            if options.IncludeGeometry ~= false and item.meshId and not item.layered and remainingTriangles > 0 then
+            if options.IncludeGeometry ~= false and item.meshId and remainingTriangles > 0 then
                 local geometry, captured = captureMeshGeometry(descendant, specialMesh, math.min(maximumTrianglesPerPart, remainingTriangles))
                 if geometry then item.geometry = geometry end
                 remainingTriangles = remainingTriangles - captured
