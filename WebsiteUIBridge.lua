@@ -4,7 +4,7 @@ local AssetService = game:GetService("AssetService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-23-generic-model-geometry-v16"
+WebsiteUIBridge.Version = "2026-07-23-texture-material-debug-v17"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -552,6 +552,7 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                     normalMap = surface.NormalMap ~= "" and surface.NormalMap or contentPropertyUri(surface, "NormalMapContent"),
                     roughnessMap = surface.RoughnessMap ~= "" and surface.RoughnessMap or contentPropertyUri(surface, "RoughnessMapContent"),
                     alphaMode = surface.AlphaMode.Name,
+                    color = colorHex(surface.Color),
                 }
             end
             table.insert(parts, item)
