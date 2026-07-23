@@ -4,7 +4,7 @@ local AssetService = game:GetService("AssetService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-23-generic-model-geometry-v15"
+WebsiteUIBridge.Version = "2026-07-23-generic-model-geometry-v16"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -212,6 +212,17 @@ local function contentPropertyUri(instance, property)
     return ok and contentUri(value) or ""
 end
 
+local function assetReference(instance, legacyProperty, contentProperty)
+    local legacyOk, legacyValue = pcall(function() return instance[legacyProperty] end)
+    if legacyOk then
+        if type(legacyValue) == "number" and legacyValue > 0 then
+            return "rbxassetid://" .. tostring(legacyValue)
+        end
+        if type(legacyValue) == "string" and legacyValue ~= "" then return legacyValue end
+    end
+    return contentProperty and contentPropertyUri(instance, contentProperty) or ""
+end
+
 local function roundedNumber(value)
     if value ~= value or value == math.huge or value == -math.huge then return 0 end
     local scaled = value * 100000
@@ -240,7 +251,7 @@ local function meshContentForPart(part, specialMesh)
     return ok and content or nil
 end
 
-local function captureMeshGeometry(part, specialMesh, triangleLimit)
+local function captureMeshGeometry(part, specialMesh, triangleLimit, contentOverride)
     if triangleLimit <= 0 then return nil, 0 end
     local deformation = "raw"
     local editableMesh
@@ -252,7 +263,7 @@ local function captureMeshGeometry(part, specialMesh, triangleLimit)
             deformation = "wrap"
         end
     end
-    local content = not editableMesh and meshContentForPart(part, specialMesh) or nil
+    local content = not editableMesh and (contentOverride or meshContentForPart(part, specialMesh)) or nil
     if not editableMesh and not content then return nil, 0 end
     local ok = editableMesh ~= nil
     if not editableMesh then
@@ -429,6 +440,20 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
     local remainingTriangles = maximumTriangles
     local pivot = snapshotModel:GetPivot()
     local parts, partIndexes = {}, {}
+    local characterMeshes = {}
+    for _, descendant in ipairs(snapshotModel:GetDescendants()) do
+        if descendant:IsA("CharacterMesh") then
+            characterMeshes[descendant.BodyPart.Name] = descendant
+        end
+    end
+    local characterMeshBodyParts = {
+        head = "Head",
+        torso = "Torso",
+        leftarm = "LeftArm",
+        rightarm = "RightArm",
+        leftleg = "LeftLeg",
+        rightleg = "RightLeg",
+    }
     for _, descendant in ipairs(snapshotModel:GetDescendants()) do
         if descendant:IsA("BasePart") and #parts < maximumParts then
             local relative = pivot:ToObjectSpace(descendant.CFrame)
@@ -462,14 +487,29 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
             end
             local specialMesh = descendant:FindFirstChildOfClass("SpecialMesh")
             if specialMesh then
-                item.meshId = specialMesh.MeshId
-                item.textureId = specialMesh.TextureId
+                item.meshId = assetReference(specialMesh, "MeshId", "MeshContent")
+                item.textureId = assetReference(specialMesh, "TextureId", "TextureContent")
                 item.meshScale = { specialMesh.Scale.X, specialMesh.Scale.Y, specialMesh.Scale.Z }
                 item.meshOffset = { specialMesh.Offset.X, specialMesh.Offset.Y, specialMesh.Offset.Z }
                 item.meshVertexColor = { specialMesh.VertexColor.X, specialMesh.VertexColor.Y, specialMesh.VertexColor.Z }
             end
-            if options.IncludeGeometry ~= false and item.meshId and remainingTriangles > 0 then
-                local geometry, captured = captureMeshGeometry(descendant, specialMesh, math.min(maximumTrianglesPerPart, remainingTriangles))
+            local normalizedName = descendant.Name:lower():gsub("[^a-z]", "")
+            local characterMesh = characterMeshes[characterMeshBodyParts[normalizedName]]
+            local characterMeshContent
+            if characterMesh then
+                item.characterMesh = true
+                item.meshId = assetReference(characterMesh, "MeshId", "MeshContent")
+                item.textureId = assetReference(characterMesh, "BaseTextureId", "BaseTextureContent")
+                item.overlayTextureId = assetReference(characterMesh, "OverlayTextureId", "OverlayTextureContent")
+                local contentOk, contentValue = pcall(function() return characterMesh.MeshContent end)
+                if contentOk and contentValue then characterMeshContent = contentValue end
+                if not characterMeshContent and item.meshId ~= "" then
+                    local uriOk, uriContent = pcall(function() return Content.fromUri(item.meshId) end)
+                    if uriOk then characterMeshContent = uriContent end
+                end
+            end
+            if options.IncludeGeometry ~= false and item.meshId and item.meshId ~= "" and remainingTriangles > 0 then
+                local geometry, captured = captureMeshGeometry(descendant, specialMesh, math.min(maximumTrianglesPerPart, remainingTriangles), characterMeshContent)
                 if geometry then
                     item.geometry = geometry
                     item.geometryStatus = "captured"
@@ -477,7 +517,7 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                     item.geometryStatus = "unavailable"
                 end
                 remainingTriangles = remainingTriangles - captured
-            elseif item.meshId and remainingTriangles <= 0 then
+            elseif item.meshId and item.meshId ~= "" and remainingTriangles <= 0 then
                 item.geometryStatus = "budget"
             elseif descendant:IsA("PartOperation") then
                 item.geometryStatus = "unsupported-csg"
@@ -563,6 +603,7 @@ function WebsiteUIBridge:GetModelAssetIds(snapshot)
     for _, part in ipairs(type(snapshot) == "table" and snapshot.parts or {}) do
         add(part.meshId)
         add(part.textureId)
+        add(part.overlayTextureId)
         for _, texture in ipairs(type(part.textures) == "table" and part.textures or {}) do
             add(texture.assetId)
         end
