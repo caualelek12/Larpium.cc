@@ -4,7 +4,7 @@ local PAIR_CODE = "LRP-UI-XXXXXXXX"
 local MODEL_TO_PUBLISH = nil -- Example: workspace.NPCs.Guard or workspace.Loot.Crate
 
 local WebsiteUIBridge = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/WebsiteUIBridge.lua?v=20260723-geometry16"
+    "https://raw.githubusercontent.com/caualelek12/Larpium.cc/2d1ad9d46ed67841f2aceff27d03c45943af897a/WebsiteUIBridge.lua"
 ))()
 
 local bridge = WebsiteUIBridge.new({
@@ -34,10 +34,13 @@ end
 local cache = result.assetCache or {}
 print("WebsiteUIBridge version: " .. tostring(WebsiteUIBridge.Version))
 print(string.format(
-    "Model uploaded: %d parts, %d streamed triangles, %d deformed parts. Assets requested: %d, cached: %d, failed: %d.",
+    "Model uploaded: %d parts, %d streamed triangles, %d deformed parts, %d CharacterMesh parts, %d mesh proxies, %d CSG proxies. Assets requested: %d, cached: %d, failed: %d.",
     tonumber(result.parts) or 0,
     tonumber(result.geometryTriangles) or 0,
     tonumber(result.deformedParts) or 0,
+    tonumber(result.characterMeshParts) or 0,
+    tonumber(result.meshProxies) or 0,
+    tonumber(result.csgProxies) or 0,
     tonumber(cache.requested) or 0,
     #(cache.cached or {}),
     #(cache.failed or {})
