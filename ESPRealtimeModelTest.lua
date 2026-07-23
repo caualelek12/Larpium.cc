@@ -4,7 +4,7 @@ local PAIR_CODE = "LRP-UI-XXXXXXXX"
 local MODEL_TO_PUBLISH = nil -- Example: workspace.NPCs.Guard or workspace.Loot.Crate
 
 local WebsiteUIBridge = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/caualelek12/Larpium.cc/2d1ad9d46ed67841f2aceff27d03c45943af897a/WebsiteUIBridge.lua"
+    "https://raw.githubusercontent.com/caualelek12/Larpium.cc/19fc58e75ff64c9252d15cb6c83d7297d46e8b0a/WebsiteUIBridge.lua"
 ))()
 
 local bridge = WebsiteUIBridge.new({
