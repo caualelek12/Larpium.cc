@@ -4,7 +4,7 @@ local AssetService = game:GetService("AssetService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-23-texture-material-debug-v17"
+WebsiteUIBridge.Version = "2026-07-23-local-geometry-clothing-v18"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -474,6 +474,7 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                 rotationMatrix = { r00, r01, r02, r10, r11, r12, r20, r21, r22 },
                 color = colorHex(descendant.Color),
                 transparency = descendant.Transparency,
+                localTransparencyModifier = descendant.LocalTransparencyModifier,
                 material = descendant.Material.Name,
                 reflectance = descendant.Reflectance,
                 skeletonPart = isSkeletonBodyPart(descendant, snapshotModel),
