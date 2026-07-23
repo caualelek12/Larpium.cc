@@ -4,7 +4,7 @@ local AssetService = game:GetService("AssetService")
 
 local WebsiteUIBridge = {}
 WebsiteUIBridge.__index = WebsiteUIBridge
-WebsiteUIBridge.Version = "2026-07-20-streamed-model-geometry-v13"
+WebsiteUIBridge.Version = "2026-07-23-generic-model-geometry-v15"
 WebsiteUIBridge.DefaultBaseUrl = "https://larpium.dedyn.io:45916"
 
 local function trimSlash(value)
@@ -201,6 +201,17 @@ local function assetIdFromReference(value)
         or text:match("[?&][Ii][Dd]=(%d+)")
 end
 
+local function contentUri(value)
+    if value == nil then return "" end
+    local ok, uri = pcall(function() return value.Uri end)
+    return ok and type(uri) == "string" and uri or ""
+end
+
+local function contentPropertyUri(instance, property)
+    local ok, value = pcall(function() return instance[property] end)
+    return ok and contentUri(value) or ""
+end
+
 local function roundedNumber(value)
     if value ~= value or value == math.huge or value == -math.huge then return 0 end
     local scaled = value * 100000
@@ -358,17 +369,24 @@ local function createStaticPoseClone(model)
 
     local rootPart = clone:FindFirstChild("HumanoidRootPart") or clone.PrimaryPart or clone:FindFirstChildWhichIsA("BasePart")
     if not rootPart then return clone end
-    rootPart.CFrame = CFrame.new(rootPart.Position)
 
     local joints = {}
+    local constraints = {}
     for _, descendant in ipairs(clone:GetDescendants()) do
         if (descendant:IsA("Motor6D") or descendant:IsA("Weld")) and descendant.Part0 and descendant.Part1 then
             table.insert(joints, descendant)
+        elseif descendant:IsA("WeldConstraint") and descendant.Part0 and descendant.Part1 then
+            table.insert(constraints, {
+                Part0 = descendant.Part0,
+                Part1 = descendant.Part1,
+                Offset = descendant.Part0.CFrame:ToObjectSpace(descendant.Part1.CFrame),
+            })
         end
     end
+    rootPart.CFrame = CFrame.new(rootPart.Position)
 
     local solved = { [rootPart] = true }
-    for _ = 1, #joints + 1 do
+    for _ = 1, #joints + #constraints + 1 do
         local changed = false
         for _, joint in ipairs(joints) do
             local part0, part1 = joint.Part0, joint.Part1
@@ -378,6 +396,18 @@ local function createStaticPoseClone(model)
                 changed = true
             elseif solved[part1] and not solved[part0] then
                 part0.CFrame = part1.CFrame * joint.C1 * joint.C0:Inverse()
+                solved[part0] = true
+                changed = true
+            end
+        end
+        for _, constraint in ipairs(constraints) do
+            local part0, part1 = constraint.Part0, constraint.Part1
+            if solved[part0] and not solved[part1] then
+                part1.CFrame = part0.CFrame * constraint.Offset
+                solved[part1] = true
+                changed = true
+            elseif solved[part1] and not solved[part0] then
+                part0.CFrame = part1.CFrame * constraint.Offset:Inverse()
                 solved[part0] = true
                 changed = true
             end
@@ -394,8 +424,8 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
     if not snapshotModel then snapshotModel = model end
     local ownsSnapshotModel = snapshotModel ~= model
     local maximumParts = math.clamp(math.floor(tonumber(options.MaxParts) or 160), 1, 160)
-    local maximumTriangles = math.clamp(math.floor(tonumber(options.MaxTriangles) or 30000), 0, 50000)
-    local maximumTrianglesPerPart = math.clamp(math.floor(tonumber(options.MaxTrianglesPerPart) or 12000), 0, 20000)
+    local maximumTriangles = math.clamp(math.floor(tonumber(options.MaxTriangles) or 80000), 0, 100000)
+    local maximumTrianglesPerPart = math.clamp(math.floor(tonumber(options.MaxTrianglesPerPart) or 30000), 0, 40000)
     local remainingTriangles = maximumTriangles
     local pivot = snapshotModel:GetPivot()
     local parts, partIndexes = {}, {}
@@ -426,8 +456,8 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
                 textures = {},
             }
             if descendant:IsA("MeshPart") then
-                item.meshId = descendant.MeshId
-                item.textureId = descendant.TextureID
+                item.meshId = descendant.MeshId ~= "" and descendant.MeshId or contentPropertyUri(descendant, "MeshContent")
+                item.textureId = descendant.TextureID ~= "" and descendant.TextureID or contentPropertyUri(descendant, "TextureContent")
                 item.meshSize = { descendant.MeshSize.X, descendant.MeshSize.Y, descendant.MeshSize.Z }
             end
             local specialMesh = descendant:FindFirstChildOfClass("SpecialMesh")
@@ -440,8 +470,17 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
             end
             if options.IncludeGeometry ~= false and item.meshId and remainingTriangles > 0 then
                 local geometry, captured = captureMeshGeometry(descendant, specialMesh, math.min(maximumTrianglesPerPart, remainingTriangles))
-                if geometry then item.geometry = geometry end
+                if geometry then
+                    item.geometry = geometry
+                    item.geometryStatus = "captured"
+                else
+                    item.geometryStatus = "unavailable"
+                end
                 remainingTriangles = remainingTriangles - captured
+            elseif item.meshId and remainingTriangles <= 0 then
+                item.geometryStatus = "budget"
+            elseif descendant:IsA("PartOperation") then
+                item.geometryStatus = "unsupported-csg"
             end
             local accessory = descendant:FindFirstAncestorOfClass("Accessory")
             if accessory then
@@ -449,20 +488,29 @@ function WebsiteUIBridge:CreateModelSnapshot(model, options)
             end
             for _, child in ipairs(descendant:GetChildren()) do
                 if child:IsA("Decal") or child:IsA("Texture") then
-                    table.insert(item.textures, {
-                        assetId = child.Texture,
+                    local textureReference = child.Texture
+                    if textureReference == "" then textureReference = contentPropertyUri(child, "TextureContent") end
+                    local textureItem = {
+                        assetId = textureReference,
                         face = child.Face.Name,
                         kind = child.ClassName,
-                    })
+                    }
+                    if child:IsA("Texture") then
+                        textureItem.studsPerTileU = child.StudsPerTileU
+                        textureItem.studsPerTileV = child.StudsPerTileV
+                        textureItem.offsetStudsU = child.OffsetStudsU
+                        textureItem.offsetStudsV = child.OffsetStudsV
+                    end
+                    table.insert(item.textures, textureItem)
                 end
             end
             local surface = descendant:FindFirstChildOfClass("SurfaceAppearance")
             if surface then
                 item.surfaceAppearance = {
-                    colorMap = surface.ColorMap,
-                    metalnessMap = surface.MetalnessMap,
-                    normalMap = surface.NormalMap,
-                    roughnessMap = surface.RoughnessMap,
+                    colorMap = surface.ColorMap ~= "" and surface.ColorMap or contentPropertyUri(surface, "ColorMapContent"),
+                    metalnessMap = surface.MetalnessMap ~= "" and surface.MetalnessMap or contentPropertyUri(surface, "MetalnessMapContent"),
+                    normalMap = surface.NormalMap ~= "" and surface.NormalMap or contentPropertyUri(surface, "NormalMapContent"),
+                    roughnessMap = surface.RoughnessMap ~= "" and surface.RoughnessMap or contentPropertyUri(surface, "RoughnessMapContent"),
                     alphaMode = surface.AlphaMode.Name,
                 }
             end
@@ -563,7 +611,7 @@ function WebsiteUIBridge:PublishLocalCharacter(options)
     local publishOptions = {}
     for key, value in pairs(options) do publishOptions[key] = value end
     publishOptions.UserId = publishOptions.UserId or player.UserId
-    if publishOptions.AvatarThumbnail == nil then publishOptions.AvatarThumbnail = true end
+    if publishOptions.AvatarThumbnail == nil then publishOptions.AvatarThumbnail = false end
     return self:PublishModel(character, publishOptions)
 end
 

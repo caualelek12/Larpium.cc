@@ -4,7 +4,7 @@ local PAIR_CODE = "LRP-UI-XXXXXXXX"
 local MODEL_TO_PUBLISH = nil -- Example: workspace.NPCs.Guard or workspace.Loot.Crate
 
 local WebsiteUIBridge = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/WebsiteUIBridge.lua?v=20260720-geometry13"
+    "https://raw.githubusercontent.com/caualelek12/Larpium.cc/refs/heads/main/WebsiteUIBridge.lua?v=20260723-geometry15"
 ))()
 
 local bridge = WebsiteUIBridge.new({
@@ -15,8 +15,8 @@ local bridge = WebsiteUIBridge.new({
 
 local publishOptions = {
     MaxParts = 160,
-    MaxTriangles = 50000,
-    MaxTrianglesPerPart = 20000,
+    MaxTriangles = 80000,
+    MaxTrianglesPerPart = 30000,
     IncludeGeometry = true,
     CacheAssets = true,
     StaticPose = true,
